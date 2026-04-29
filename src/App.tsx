@@ -66,7 +66,7 @@ export default function App() {
           <div>
             <h1 style={h1Style}>VC Format Comparison Tool</h1>
             <p style={subtitleStyle}>
-              SD-JWT VC (JSON) vs JSON-LD VC (W3C VCDM 2.0) — 定量的比較分析
+              SD-JWT VC / JSON-LD VC (W3C VCDM 2.0) / mdoc (ISO 18013-5) — 定量的比較分析
             </p>
           </div>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -135,19 +135,30 @@ export default function App() {
           <div style={emptyStyle}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>🔬</div>
             <h2 style={{ color: '#e2e8f0', fontSize: 20, marginBottom: 8 }}>比較ベンチマークを実行してください</h2>
-            <p style={{ color: '#64748b', fontSize: 14, maxWidth: 480, textAlign: 'center', lineHeight: 1.6 }}>
-              「ベンチマーク実行」ボタンを押すと、ブラウザ内で SD-JWT VC と JSON-LD VC の
+            <p style={{ color: '#64748b', fontSize: 14, maxWidth: 540, textAlign: 'center', lineHeight: 1.6 }}>
+              「ベンチマーク実行」ボタンを押すと、ブラウザ内で3フォーマットの
               署名検証速度・デシリアライズ複雑性・正規化セキュリティを定量測定します。
               外部ネットワーク通信は行いません。
             </p>
-            <div style={{ display: 'flex', gap: 16, marginTop: 24, flexWrap: 'wrap', justifyContent: 'center' }}>
+            <div style={{ display: 'flex', gap: 14, marginTop: 28, flexWrap: 'wrap', justifyContent: 'center' }}>
               {[
-                { color: '#60a5fa', label: 'SD-JWT VC', libs: 'jose / EdDSA' },
-                { color: '#f59e0b', label: 'JSON-LD VC', libs: 'jsonld / URDNA2015 / Ed25519' },
-              ].map(({ color, label, libs }) => (
-                <div key={label} style={{ background: '#1e293b', borderRadius: 10, padding: '12px 20px', border: `1px solid ${color}40`, minWidth: 160 }}>
-                  <div style={{ color, fontWeight: 700, fontSize: 14 }}>{label}</div>
-                  <div style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>{libs}</div>
+                { color: '#60a5fa', label: 'SD-JWT VC',  spec: 'IETF RFC 9901',   serial: 'JWT (JSON)',      crypto: 'EdDSA / Ed25519',    norm: 'なし' },
+                { color: '#f59e0b', label: 'JSON-LD VC', spec: 'W3C VCDM 2.0',    serial: 'JSON-LD (JSON)',  crypto: 'Ed25519 + SHA-256',   norm: 'URDNA2015 (RDF)' },
+                { color: '#34d399', label: 'mdoc',        spec: 'ISO 18013-5',     serial: 'CBOR (バイナリ)', crypto: 'ECDSA P-256 (ES256)', norm: 'なし' },
+              ].map(({ color, label, spec, serial, crypto, norm }) => (
+                <div key={label} style={{ background: '#1e293b', borderRadius: 12, padding: '16px 20px', border: `1px solid ${color}40`, minWidth: 180, maxWidth: 220 }}>
+                  <div style={{ color, fontWeight: 700, fontSize: 15, marginBottom: 10 }}>{label}</div>
+                  {[
+                    ['規格',           spec],
+                    ['シリアライズ',   serial],
+                    ['暗号アルゴリズム', crypto],
+                    ['正規化',         norm],
+                  ].map(([k, v]) => (
+                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 5 }}>
+                      <span style={{ fontSize: 10, color: '#475569', whiteSpace: 'nowrap' }}>{k}</span>
+                      <span style={{ fontSize: 10, color: '#94a3b8', textAlign: 'right' }}>{v}</span>
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>
