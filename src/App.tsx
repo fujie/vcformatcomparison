@@ -159,6 +159,7 @@ export default function App() {
             benchmarkRunning={noLibRunning}
             benchmarkProgress={noLibProgress}
             onRunBenchmark={runNoLib}
+            speedResults={speedResults}
           />
         )}
 

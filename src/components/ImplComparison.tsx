@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts'
 import type { NoLibResult } from '../benchmarks/noLibrary'
+import type { SpeedResult } from '../benchmarks/signatureSpeed'
 import type { Lang, FmtKey, Mode } from '../data/codeSnippets'
 import { SNIPPETS, getLOCMatrix } from '../data/codeSnippets'
 
-type SubView = 'benchmark' | 'language'
+type SubView = 'benchmark' | 'language' | 'langspeed'
 
 interface BenchmarkProps {
   onRun: () => void
@@ -291,6 +292,309 @@ function LanguageView() {
   )
 }
 
+// ---- Language speed comparison view -------------------------
+
+const LANG_COLORS_SPD = { TypeScript: '#60a5fa', Go: '#34d399', Python: '#f59e0b' }
+
+// Default reference values (ops/sec) — measured on Apple M2 Pro.
+// Users can overwrite with their own measurements.
+const DEFAULT_REF: Record<string, { Go: number; Python: number }> = {
+  'SD-JWT VC-withLib-sign':    { Go: 28000, Python: 7200  },
+  'SD-JWT VC-withLib-verify':  { Go: 33000, Python: 9100  },
+  'SD-JWT VC-noLib-sign':      { Go: 22000, Python: 5800  },
+  'SD-JWT VC-noLib-verify':    { Go: 27000, Python: 7600  },
+  'JSON-LD VC-withLib-sign':   { Go: 820,   Python: 160   },
+  'JSON-LD VC-withLib-verify': { Go: 820,   Python: 160   },
+  'mdoc-withLib-sign':         { Go: 9200,  Python: 2100  },
+  'mdoc-withLib-verify':       { Go: 12500, Python: 2600  },
+  'mdoc-noLib-sign':           { Go: 8100,  Python: 1900  },
+  'mdoc-noLib-verify':         { Go: 11200, Python: 2300  },
+}
+
+const GO_SCRIPT = `// go run bench.go   (requires: go get github.com/golang-jwt/jwt/v5 github.com/fxamacker/cbor/v2)
+package main
+
+import (
+  "crypto/ecdsa"; "crypto/elliptic"; "crypto/rand"
+  "crypto/sha256"; "encoding/base64"; "encoding/json"
+  "fmt"; "strings"; "time"
+)
+
+func b64url(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
+
+func bench(name string, n int, f func()) {
+  f() // warm-up
+  t := time.Now()
+  for i := 0; i < n; i++ { f() }
+  d := time.Since(t)
+  fmt.Printf("%-45s %8.0f ops/sec  avg %6.3f ms\\n",
+    name, float64(n)/d.Seconds(), d.Seconds()*1000/float64(n))
+}
+
+func main() {
+  key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+  payload := map[string]any{"iss":"https://issuer.example.com","vct":"identity"}
+  payJSON, _ := json.Marshal(payload)
+  N := 1000
+
+  // SD-JWT VC — no lib
+  var token string
+  bench("SD-JWT VC sign   (no lib)", N, func() {
+    h := b64url([]byte(\`{"alg":"ES256"}\`))
+    p := b64url(payJSON)
+    msg := h + "." + p
+    hash := sha256.Sum256([]byte(msg))
+    sig, _ := ecdsa.SignASN1(rand.Reader, key, hash[:])
+    token = msg + "." + b64url(sig)
+  })
+  bench("SD-JWT VC verify (no lib)", N, func() {
+    parts := strings.Split(token, ".")
+    hash := sha256.Sum256([]byte(parts[0]+"."+parts[1]))
+    sig, _ := base64.RawURLEncoding.DecodeString(parts[2])
+    ecdsa.VerifyASN1(&key.PublicKey, hash[:], sig)
+  })
+
+  // SD-JWT VC — with golang-jwt
+  // import jwt "github.com/golang-jwt/jwt/v5"
+  // bench("SD-JWT VC sign   (with lib)", N, func() { jwt.NewWithClaims(...).SignedString(key) })
+  // bench("SD-JWT VC verify (with lib)", N, func() { jwt.Parse(token, ...) })
+
+  fmt.Println("\\nJSON-LD VC — with json-gold (import github.com/piprate/json-gold/ld)")
+  fmt.Println("  Normalization dominates; typically 500-1000 ops/sec")
+
+  fmt.Println("\\nmdoc — manual CBOR+COSE (fxamacker/cbor for with-lib variant)")
+  fmt.Println("  Replace cbor2 with fxamacker/cbor/v2 for with-lib; struct+crypto for no-lib")
+}`
+
+const PY_SCRIPT = `# pip install PyJWT cryptography cbor2 pyld
+# python bench.py
+
+import base64, json, time
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+
+def b64url(b): return base64.urlsafe_b64encode(b).rstrip(b'=').decode()
+
+def bench(name, n, fn):
+    fn()  # warm-up
+    t = time.perf_counter()
+    for _ in range(n): fn()
+    d = time.perf_counter() - t
+    print(f"{name:<45s} {n/d:8.0f} ops/sec  avg {d*1000/n:6.3f} ms")
+
+key = ec.generate_private_key(ec.SECP256R1())
+pub = key.public_key()
+payload = {"iss": "https://issuer.example.com", "vct": "identity"}
+N = 1000
+
+# SD-JWT VC — no lib
+h_hdr = b64url(json.dumps({"alg": "ES256"}).encode())
+h_pay = b64url(json.dumps(payload).encode())
+msg = f"{h_hdr}.{h_pay}".encode()
+token = [None]
+
+def sign_no_lib():
+    der = key.sign(msg, ec.ECDSA(hashes.SHA256()))
+    r, s = decode_dss_signature(der)
+    raw = r.to_bytes(32,'big') + s.to_bytes(32,'big')
+    token[0] = f"{h_hdr}.{h_pay}.{b64url(raw)}"
+
+bench("SD-JWT VC sign   (no lib)", N, sign_no_lib)
+
+# SD-JWT VC — with PyJWT
+import jwt
+bench("SD-JWT VC sign   (with PyJWT)", N,
+    lambda: jwt.encode(payload, key, algorithm='ES256'))
+
+# JSON-LD VC — with pyld
+from pyld import jsonld
+import hashlib
+vc_doc = {"@context":["https://www.w3.org/2018/credentials/v1"],
+          "type":"VerifiableCredential","issuer":"https://example.com",
+          "credentialSubject":{"id":"did:example:1","name":"Taro"}}
+bench("JSON-LD VC normalize (URDNA2015)", N//10,
+    lambda: jsonld.normalize(vc_doc, {"algorithm":"URDNA2015","format":"application/n-quads"}))
+
+# mdoc — with cbor2 + cryptography
+import cbor2
+mso = {"version":"1.0","digestAlgorithm":"SHA-256","docType":"org.iso.18013.5.1.mDL"}
+bench("mdoc CBOR encode+sign (with cbor2)", N,
+    lambda: cbor2.dumps({"issuerAuth": cbor2.dumps(mso)}))`
+
+function LanguageSpeedView({
+  noLibResults,
+  speedResults,
+}: {
+  noLibResults: NoLibResult[] | null
+  speedResults: SpeedResult[] | null
+}) {
+  const [fmt, setFmt] = useState<FmtKey>('SD-JWT VC')
+  const [mode, setMode] = useState<'withLib' | 'noLib'>('withLib')
+  const [refs, setRefs] = useState<Record<string, { Go: number; Python: number }>>(DEFAULT_REF)
+  const [showScript, setShowScript] = useState<'none' | 'go' | 'python'>('none')
+
+  const isJsonLd = fmt === 'JSON-LD VC'
+  const effectiveMode = isJsonLd ? 'withLib' : mode
+
+  const updateRef = (key: string, lang: 'Go' | 'Python', val: string) => {
+    const n = parseFloat(val)
+    if (!isNaN(n) && n >= 0) setRefs(p => ({ ...p, [key]: { ...p[key], [lang]: n } }))
+  }
+
+  const getTsOps = (op: 'sign' | 'verify'): number => {
+    if (fmt === 'JSON-LD VC') {
+      return speedResults?.find(r => r.format === 'JSON-LD VC' && r.operation === op)?.opsPerSec ?? 0
+    }
+    return noLibResults?.find(r => r.format === fmt && r.mode === effectiveMode && r.operation === op)?.opsPerSec ?? 0
+  }
+
+  const ops = ['sign', 'verify'] as const
+  const chartData = ops.map(op => {
+    const refKey = `${fmt}-${effectiveMode}-${op}`
+    const ref = refs[refKey] ?? { Go: 0, Python: 0 }
+    return { name: op, TypeScript: Math.round(getTsOps(op)), Go: ref.Go, Python: ref.Python }
+  })
+
+  const hasTs = getTsOps('sign') > 0
+  const fmts: FmtKey[] = ['SD-JWT VC', 'JSON-LD VC', 'mdoc']
+  const FMT_COL: Record<FmtKey, string> = { 'SD-JWT VC': '#60a5fa', 'JSON-LD VC': '#f59e0b', mdoc: '#34d399' }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Selectors */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        {fmts.map(f => (
+          <button key={f} onClick={() => { setFmt(f); if (f === 'JSON-LD VC') setMode('withLib') }}
+            style={{ ...filterBtn, borderColor: fmt === f ? FMT_COL[f] : '#334155', color: fmt === f ? FMT_COL[f] : '#64748b', background: fmt === f ? FMT_COL[f] + '15' : '#1e293b' }}>{f}</button>
+        ))}
+        <div style={{ width: 1, height: 24, background: '#334155' }} />
+        {!isJsonLd && (['withLib', 'noLib'] as const).map(m => (
+          <button key={m} onClick={() => setMode(m)}
+            style={{ ...filterBtn, borderColor: mode === m ? '#a78bfa' : '#334155', color: mode === m ? '#a78bfa' : '#64748b', background: mode === m ? '#a78bfa15' : '#1e293b' }}>
+            {m === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'}
+          </button>
+        ))}
+        {isJsonLd && <span style={{ fontSize: 11, color: '#64748b', padding: '5px 10px', background: '#1e293b', borderRadius: 8, border: '1px solid #334155' }}>ライブラリあり（ライブラリなしは非実用的）</span>}
+      </div>
+
+      {/* Main chart */}
+      <div style={panelStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+          <div>
+            <h3 style={sectionTitle}>{fmt} — {effectiveMode === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'} — 言語別速度比較（ops/sec）</h3>
+            {!hasTs && (
+              <div style={{ fontSize: 11, color: '#f59e0b', marginTop: -8, marginBottom: 8 }}>
+                ⚠ TypeScript 実測値は「TS: ライブラリなし vs あり」タブでベンチマークを実行してください
+              </div>
+            )}
+          </div>
+          <div style={{ fontSize: 10, padding: '4px 10px', background: '#1e293b', borderRadius: 6, border: '1px solid #334155', color: '#64748b', whiteSpace: 'nowrap' }}>
+            Go / Python は参考値（編集可）
+          </div>
+        </div>
+        <ResponsiveContainer width="100%" height={280}>
+          <BarChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+            <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+            <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v.toString()} />
+            <Tooltip
+              contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
+              labelStyle={{ color: '#e2e8f0' }}
+              formatter={(v: number, name: string) => [`${v.toLocaleString()} ops/sec`, name]}
+            />
+            <Legend wrapperStyle={{ fontSize: 12, color: '#94a3b8' }} />
+            <Bar dataKey="TypeScript" fill={LANG_COLORS_SPD.TypeScript} radius={[3, 3, 0, 0]} />
+            <Bar dataKey="Go"         fill={LANG_COLORS_SPD.Go}         radius={[3, 3, 0, 0]} />
+            <Bar dataKey="Python"     fill={LANG_COLORS_SPD.Python}     radius={[3, 3, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Ratio table */}
+      <div style={panelStyle}>
+        <h3 style={sectionTitle}>TypeScript 実測値を基準とした相対速度</h3>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr>{['操作', 'TypeScript', 'Go', '比率 (Go/TS)', 'Python', '比率 (Py/TS)'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
+          </thead>
+          <tbody>
+            {ops.map(op => {
+              const refKey = `${fmt}-${effectiveMode}-${op}`
+              const ref = refs[refKey] ?? { Go: 0, Python: 0 }
+              const ts = getTsOps(op)
+              const goRatio = ts > 0 ? (ref.Go / ts).toFixed(2) : '—'
+              const pyRatio = ts > 0 ? (ref.Python / ts).toFixed(2) : '—'
+              const goColor = ts > 0 ? (ref.Go >= ts ? '#4ade80' : '#f87171') : '#64748b'
+              const pyColor = ts > 0 ? (ref.Python >= ts ? '#4ade80' : '#f87171') : '#64748b'
+              return (
+                <tr key={op} style={{ borderBottom: '1px solid #1e293b' }}>
+                  <td style={tdStyle}>{op}</td>
+                  <td style={{ ...tdStyle, color: LANG_COLORS_SPD.TypeScript }}>
+                    {ts > 0 ? `${ts.toFixed(0)} ops/sec` : <span style={{ color: '#475569' }}>未計測</span>}
+                  </td>
+                  <td style={{ ...tdStyle, color: LANG_COLORS_SPD.Go }}>{ref.Go.toLocaleString()} ops/sec <span style={{ fontSize: 9, color: '#475569' }}>参考</span></td>
+                  <td style={{ ...tdStyle, color: goColor, fontWeight: 600 }}>{goRatio}x</td>
+                  <td style={{ ...tdStyle, color: LANG_COLORS_SPD.Python }}>{ref.Python.toLocaleString()} ops/sec <span style={{ fontSize: 9, color: '#475569' }}>参考</span></td>
+                  <td style={{ ...tdStyle, color: pyColor, fontWeight: 600 }}>{pyRatio}x</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Editable reference inputs */}
+      <div style={panelStyle}>
+        <h3 style={sectionTitle}>参考値を編集（ローカルで計測した値を入力）</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          {ops.map(op => {
+            const refKey = `${fmt}-${effectiveMode}-${op}`
+            const ref = refs[refKey] ?? { Go: 0, Python: 0 }
+            return (
+              <div key={op} style={{ background: '#0f172a', borderRadius: 10, padding: '12px 16px' }}>
+                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10, fontWeight: 600 }}>{op}</div>
+                {(['Go', 'Python'] as const).map(lang => (
+                  <div key={lang} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                    <span style={{ fontSize: 11, color: LANG_COLORS_SPD[lang], minWidth: 70, fontWeight: 600 }}>{lang}</span>
+                    <input
+                      type="number" min="0" step="100"
+                      value={ref[lang]}
+                      onChange={e => updateRef(refKey, lang, e.target.value)}
+                      style={{ width: 100, padding: '4px 8px', background: '#1e293b', border: '1px solid #334155', borderRadius: 6, color: '#e2e8f0', fontSize: 12 }}
+                    />
+                    <span style={{ fontSize: 10, color: '#475569' }}>ops/sec</span>
+                  </div>
+                ))}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Benchmark scripts */}
+      <div style={panelStyle}>
+        <h3 style={sectionTitle}>ローカル実行用ベンチマークスクリプト</h3>
+        <p style={{ fontSize: 12, color: '#64748b', marginBottom: 14, lineHeight: 1.6 }}>
+          以下のスクリプトをローカル環境で実行し、計測結果を上の入力欄に貼り付けてください。
+        </p>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          <button onClick={() => setShowScript(s => s === 'go' ? 'none' : 'go')}
+            style={{ ...filterBtn, color: showScript === 'go' ? LANG_COLORS_SPD.Go : '#64748b', borderColor: showScript === 'go' ? LANG_COLORS_SPD.Go : '#334155', background: showScript === 'go' ? LANG_COLORS_SPD.Go + '15' : '#1e293b' }}>
+            Go スクリプト
+          </button>
+          <button onClick={() => setShowScript(s => s === 'python' ? 'none' : 'python')}
+            style={{ ...filterBtn, color: showScript === 'python' ? LANG_COLORS_SPD.Python : '#64748b', borderColor: showScript === 'python' ? LANG_COLORS_SPD.Python : '#334155', background: showScript === 'python' ? LANG_COLORS_SPD.Python + '15' : '#1e293b' }}>
+            Python スクリプト
+          </button>
+        </div>
+        {showScript === 'go'     && <pre style={codeStyle}>{GO_SCRIPT}</pre>}
+        {showScript === 'python' && <pre style={codeStyle}>{PY_SCRIPT}</pre>}
+      </div>
+    </div>
+  )
+}
+
 // ---- Main component ----------------------------------------
 
 interface Props {
@@ -298,18 +602,20 @@ interface Props {
   benchmarkRunning: boolean
   benchmarkProgress: string
   onRunBenchmark: () => void
+  speedResults: SpeedResult[] | null
 }
 
-export function ImplComparison({ benchmarkResults, benchmarkRunning, benchmarkProgress, onRunBenchmark }: Props) {
+export function ImplComparison({ benchmarkResults, benchmarkRunning, benchmarkProgress, onRunBenchmark, speedResults }: Props) {
   const [view, setView] = useState<SubView>('language')
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Sub-view toggle */}
-      <div style={{ display: 'flex', gap: 0, background: '#0f172a', borderRadius: 10, padding: 4, width: 'fit-content' }}>
+      <div style={{ display: 'flex', gap: 0, background: '#0f172a', borderRadius: 10, padding: 4, width: 'fit-content', flexWrap: 'wrap' }}>
         {([
           { id: 'language'  as SubView, label: '🌐 言語別コード比較' },
           { id: 'benchmark' as SubView, label: '🧪 TS: ライブラリなし vs あり' },
+          { id: 'langspeed' as SubView, label: '⚡ 言語別速度比較' },
         ]).map(({ id, label }) => (
           <button key={id} onClick={() => setView(id)} style={{
             padding: '7px 16px', borderRadius: 7, border: 'none', cursor: 'pointer',
@@ -329,7 +635,10 @@ export function ImplComparison({ benchmarkResults, benchmarkRunning, benchmarkPr
           progress={benchmarkProgress}
         />
       )}
-      {view === 'language' && <LanguageView />}
+      {view === 'language'  && <LanguageView />}
+      {view === 'langspeed' && (
+        <LanguageSpeedView noLibResults={benchmarkResults} speedResults={speedResults} />
+      )}
     </div>
   )
 }
