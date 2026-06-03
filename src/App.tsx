@@ -2,17 +2,20 @@ import { useState, useCallback } from 'react'
 import type { SpeedResult } from './benchmarks/signatureSpeed'
 import type { ComplexityMetric } from './benchmarks/deserializationComplexity'
 import type { SecurityTest } from './benchmarks/normalizationSecurity'
+import type { NoLibResult } from './benchmarks/noLibrary'
 import { SpeedResults } from './components/SpeedResults'
 import { ComplexityResults } from './components/ComplexityResults'
 import { SecurityResults } from './components/SecurityResults'
+import { ImplComparison } from './components/ImplComparison'
 
-type Tab = 'speed' | 'complexity' | 'security'
+type Tab = 'speed' | 'complexity' | 'security' | 'impl'
 type Status = 'idle' | 'running' | 'done' | 'error'
 
 const TABS: { id: Tab; label: string; icon: string; desc: string }[] = [
   { id: 'speed',      icon: '⚡', label: '署名検証速度',       desc: 'sign/verify のops/sec & レイテンシ' },
   { id: 'complexity', icon: '📐', label: 'デシリアライズ複雑性', desc: 'LOC・非同期ステップ・循環的複雑度' },
   { id: 'security',   icon: '🔐', label: '正規化セキュリティ',   desc: 'DoS・SSRF・インジェクション定量評価' },
+  { id: 'impl',       icon: '🔤', label: '実装比較',             desc: 'Go・Python・TS / ライブラリなし実装' },
 ]
 
 export default function App() {
@@ -25,6 +28,9 @@ export default function App() {
   const [speedResults, setSpeedResults] = useState<SpeedResult[] | null>(null)
   const [complexityResults, setComplexityResults] = useState<ComplexityMetric[] | null>(null)
   const [securityResults, setSecurityResults] = useState<SecurityTest[] | null>(null)
+  const [noLibResults, setNoLibResults] = useState<NoLibResult[] | null>(null)
+  const [noLibRunning, setNoLibRunning] = useState(false)
+  const [noLibProgress, setNoLibProgress] = useState('')
 
   const runBenchmarks = useCallback(async () => {
     setStatus('running')
@@ -55,6 +61,21 @@ export default function App() {
       setStatus('error')
       setError((e as Error).message)
       console.error(e)
+    }
+  }, [iterations])
+
+  const runNoLib = useCallback(async () => {
+    setNoLibRunning(true)
+    setNoLibProgress('準備中...')
+    try {
+      const { runNoLibBenchmarks } = await import('./benchmarks/noLibrary')
+      const results = await runNoLibBenchmarks(iterations, setNoLibProgress)
+      setNoLibResults(results)
+    } catch (e) {
+      console.error(e)
+      setNoLibProgress(`エラー: ${(e as Error).message}`)
+    } finally {
+      setNoLibRunning(false)
     }
   }, [iterations])
 
@@ -131,7 +152,17 @@ export default function App() {
 
       {/* Content */}
       <div style={contentStyle}>
-        {status === 'idle' && (
+        {/* 実装比較タブは常に表示（独立して動作） */}
+        {tab === 'impl' && (
+          <ImplComparison
+            benchmarkResults={noLibResults}
+            benchmarkRunning={noLibRunning}
+            benchmarkProgress={noLibProgress}
+            onRunBenchmark={runNoLib}
+          />
+        )}
+
+        {tab !== 'impl' && status === 'idle' && (
           <div style={emptyStyle}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>🔬</div>
             <h2 style={{ color: '#e2e8f0', fontSize: 20, marginBottom: 8 }}>比較ベンチマークを実行してください</h2>
@@ -165,7 +196,7 @@ export default function App() {
           </div>
         )}
 
-        {status !== 'idle' && (
+        {tab !== 'impl' && status !== 'idle' && (
           <>
             {tab === 'speed' && speedResults && <SpeedResults results={speedResults} />}
             {tab === 'complexity' && complexityResults && <ComplexityResults results={complexityResults} />}
@@ -224,7 +255,7 @@ const tabBtnStyle: React.CSSProperties = {
   borderBottom: '2px solid transparent', transition: 'all 0.15s',
 }
 const tabBtnActiveStyle: React.CSSProperties = {
-  color: '#e2e8f0', borderBottomColor: '#60a5fa',
+  color: '#e2e8f0', borderBottom: '2px solid #60a5fa',
 }
 const contentStyle: React.CSSProperties = {
   flex: 1, maxWidth: 1280, margin: '0 auto', width: '100%', padding: '24px 24px',
