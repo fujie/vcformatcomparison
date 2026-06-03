@@ -295,6 +295,7 @@ function LanguageView() {
 // ---- Language speed comparison view -------------------------
 
 const LANG_COLORS_SPD = { TypeScript: '#60a5fa', Go: '#34d399', Python: '#f59e0b' }
+const FMT_COLORS_SPD: Record<FmtKey, string> = { 'SD-JWT VC': '#60a5fa', 'JSON-LD VC': '#f59e0b', mdoc: '#34d399' }
 
 // Default reference values (ops/sec) — measured on Apple M2 Pro.
 // Users can overwrite with their own measurements.
@@ -429,141 +430,283 @@ function LanguageSpeedView({
   noLibResults: NoLibResult[] | null
   speedResults: SpeedResult[] | null
 }) {
+  type CmpMode = 'format' | 'language'
+  const [cmpMode, setCmpMode] = useState<CmpMode>('format')  // format=フォーマット比較, language=言語比較
+
+  // Format-compare selectors (language + mode fixed)
+  const [lang, setLang] = useState<'TypeScript' | 'Go' | 'Python'>('TypeScript')
+
+  // Language-compare selectors (format fixed)
   const [fmt, setFmt] = useState<FmtKey>('SD-JWT VC')
+
+  // Shared: mode
   const [mode, setMode] = useState<'withLib' | 'noLib'>('withLib')
+
+  // Reference values (Go/Python, editable)
   const [refs, setRefs] = useState<Record<string, { Go: number; Python: number }>>(DEFAULT_REF)
   const [showScript, setShowScript] = useState<'none' | 'go' | 'python'>('none')
 
-  const isJsonLd = fmt === 'JSON-LD VC'
-  const effectiveMode = isJsonLd ? 'withLib' : mode
+  const ops = ['sign', 'verify'] as const
+  const fmts: FmtKey[] = ['SD-JWT VC', 'JSON-LD VC', 'mdoc']
+  const langs: ('TypeScript' | 'Go' | 'Python')[] = ['TypeScript', 'Go', 'Python']
 
-  const updateRef = (key: string, lang: 'Go' | 'Python', val: string) => {
+  const updateRef = (key: string, l: 'Go' | 'Python', val: string) => {
     const n = parseFloat(val)
-    if (!isNaN(n) && n >= 0) setRefs(p => ({ ...p, [key]: { ...p[key], [lang]: n } }))
+    if (!isNaN(n) && n >= 0) setRefs(p => ({ ...p, [key]: { ...p[key], [l]: n } }))
   }
 
-  const getTsOps = (op: 'sign' | 'verify'): number => {
-    if (fmt === 'JSON-LD VC') {
+  // Get TypeScript ops/sec for any format+mode+op
+  const getTsOps = (f: FmtKey, m: 'withLib' | 'noLib', op: 'sign' | 'verify'): number => {
+    if (f === 'JSON-LD VC') {
+      if (m === 'noLib') return 0
       return speedResults?.find(r => r.format === 'JSON-LD VC' && r.operation === op)?.opsPerSec ?? 0
     }
-    return noLibResults?.find(r => r.format === fmt && r.mode === effectiveMode && r.operation === op)?.opsPerSec ?? 0
+    return noLibResults?.find(r => r.format === f && r.mode === m && r.operation === op)?.opsPerSec ?? 0
   }
 
-  const ops = ['sign', 'verify'] as const
-  const chartData = ops.map(op => {
-    const refKey = `${fmt}-${effectiveMode}-${op}`
-    const ref = refs[refKey] ?? { Go: 0, Python: 0 }
-    return { name: op, TypeScript: Math.round(getTsOps(op)), Go: ref.Go, Python: ref.Python }
+  // Get Go/Python reference ops/sec
+  const getRefOps = (f: FmtKey, m: 'withLib' | 'noLib', op: 'sign' | 'verify', l: 'Go' | 'Python'): number => {
+    if (f === 'JSON-LD VC' && m === 'noLib') return 0
+    return refs[`${f}-${m}-${op}`]?.[l] ?? 0
+  }
+
+  // For language-compare view
+  const isJsonLdFmt = fmt === 'JSON-LD VC'
+  const effectiveMode = isJsonLdFmt ? 'withLib' : mode
+
+  // ======= フォーマット比較 chart data =======
+  // X: sign/verify, bars: SD-JWT VC / JSON-LD VC / mdoc (for selected language+mode)
+  const fmtChartData = ops.map(op => {
+    const entry: Record<string, string | number> = { name: op }
+    for (const f of fmts) {
+      const m = f === 'JSON-LD VC' && mode === 'noLib' ? 'withLib' : mode
+      entry[f] = lang === 'TypeScript'
+        ? Math.round(getTsOps(f, m, op))
+        : getRefOps(f, m, op, lang as 'Go' | 'Python')
+    }
+    return entry
   })
 
-  const hasTs = getTsOps('sign') > 0
-  const fmts: FmtKey[] = ['SD-JWT VC', 'JSON-LD VC', 'mdoc']
-  const FMT_COL: Record<FmtKey, string> = { 'SD-JWT VC': '#60a5fa', 'JSON-LD VC': '#f59e0b', mdoc: '#34d399' }
+  // ======= 言語比較 chart data (existing) =======
+  // X: sign/verify, bars: TypeScript / Go / Python (for selected format+mode)
+  const langChartData = ops.map(op => ({
+    name: op,
+    TypeScript: Math.round(getTsOps(fmt, effectiveMode, op)),
+    Go: getRefOps(fmt, effectiveMode, op, 'Go'),
+    Python: getRefOps(fmt, effectiveMode, op, 'Python'),
+  }))
+
+  const hasTs = fmts.some(f => getTsOps(f, mode, 'sign') > 0) || speedResults !== null
+
+  // ======= Reference input list: all 3 formats × 2 ops for current mode =======
+  const allRefKeys = fmts.flatMap(f =>
+    ops.map(op => ({
+      key: `${f}-${f === 'JSON-LD VC' ? 'withLib' : mode}-${op}`,
+      label: `${f} / ${op}`,
+      fmt: f,
+      op,
+    }))
+  )
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Selectors */}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-        {fmts.map(f => (
-          <button key={f} onClick={() => { setFmt(f); if (f === 'JSON-LD VC') setMode('withLib') }}
-            style={{ ...filterBtn, borderColor: fmt === f ? FMT_COL[f] : '#334155', color: fmt === f ? FMT_COL[f] : '#64748b', background: fmt === f ? FMT_COL[f] + '15' : '#1e293b' }}>{f}</button>
+
+      {/* Compare mode toggle */}
+      <div style={{ display: 'flex', gap: 0, background: '#0f172a', borderRadius: 10, padding: 4, width: 'fit-content' }}>
+        {([
+          { id: 'format'   as CmpMode, label: '📊 フォーマット比較（言語固定）' },
+          { id: 'language' as CmpMode, label: '🌐 言語比較（フォーマット固定）' },
+        ]).map(({ id, label }) => (
+          <button key={id} onClick={() => setCmpMode(id)} style={{
+            padding: '6px 14px', borderRadius: 7, border: 'none', cursor: 'pointer',
+            fontSize: 12, fontWeight: cmpMode === id ? 600 : 400,
+            background: cmpMode === id ? '#1e293b' : 'none',
+            color: cmpMode === id ? '#e2e8f0' : '#64748b',
+            transition: 'all 0.15s',
+          }}>{label}</button>
         ))}
-        <div style={{ width: 1, height: 24, background: '#334155' }} />
-        {!isJsonLd && (['withLib', 'noLib'] as const).map(m => (
-          <button key={m} onClick={() => setMode(m)}
-            style={{ ...filterBtn, borderColor: mode === m ? '#a78bfa' : '#334155', color: mode === m ? '#a78bfa' : '#64748b', background: mode === m ? '#a78bfa15' : '#1e293b' }}>
-            {m === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'}
-          </button>
-        ))}
-        {isJsonLd && <span style={{ fontSize: 11, color: '#64748b', padding: '5px 10px', background: '#1e293b', borderRadius: 8, border: '1px solid #334155' }}>ライブラリあり（ライブラリなしは非実用的）</span>}
       </div>
 
-      {/* Main chart */}
-      <div style={panelStyle}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-          <div>
-            <h3 style={sectionTitle}>{fmt} — {effectiveMode === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'} — 言語別速度比較（ops/sec）</h3>
-            {!hasTs && (
-              <div style={{ fontSize: 11, color: '#f59e0b', marginTop: -8, marginBottom: 8 }}>
-                ⚠ TypeScript 実測値は「TS: ライブラリなし vs あり」タブでベンチマークを実行してください
-              </div>
+      {/* ====== フォーマット比較 ====== */}
+      {cmpMode === 'format' && <>
+        {/* Selectors: language + mode */}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          {langs.map(l => (
+            <button key={l} onClick={() => setLang(l)}
+              style={{ ...filterBtn, borderColor: lang === l ? LANG_COLORS_SPD[l] : '#334155', color: lang === l ? LANG_COLORS_SPD[l] : '#64748b', background: lang === l ? LANG_COLORS_SPD[l] + '15' : '#1e293b' }}>{l}</button>
+          ))}
+          <div style={{ width: 1, height: 24, background: '#334155' }} />
+          {(['withLib', 'noLib'] as const).map(m => (
+            <button key={m} onClick={() => setMode(m)}
+              style={{ ...filterBtn, borderColor: mode === m ? '#a78bfa' : '#334155', color: mode === m ? '#a78bfa' : '#64748b', background: mode === m ? '#a78bfa15' : '#1e293b' }}>
+              {m === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'}
+            </button>
+          ))}
+        </div>
+
+        {mode === 'noLib' && (
+          <div style={{ fontSize: 12, color: '#64748b', padding: '6px 12px', background: '#1e293b', borderRadius: 8 }}>
+            ※ JSON-LD VC のライブラリなしは非実用（URDNA2015 ≈ 1200行）。グラフには「ライブラリあり」の値を表示します。
+          </div>
+        )}
+        {lang === 'TypeScript' && !hasTs && (
+          <div style={{ fontSize: 12, color: '#f59e0b', padding: '8px 12px', background: '#78350f20', borderRadius: 8, border: '1px solid #f59e0b40' }}>
+            ⚠ TypeScript 実測値は「🧪 TS: ライブラリなし vs あり」でベンチマークを実行してください
+          </div>
+        )}
+
+        {/* Chart: X=sign/verify, bars=3 formats */}
+        <div style={panelStyle}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+            <h3 style={sectionTitle}>
+              {lang} — {mode === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'} — フォーマット別速度比較（ops/sec）
+            </h3>
+            {lang !== 'TypeScript' && (
+              <span style={{ fontSize: 10, color: '#475569', padding: '3px 8px', background: '#1e293b', borderRadius: 6, border: '1px solid #334155' }}>参考値（編集可）</span>
             )}
           </div>
-          <div style={{ fontSize: 10, padding: '4px 10px', background: '#1e293b', borderRadius: 6, border: '1px solid #334155', color: '#64748b', whiteSpace: 'nowrap' }}>
-            Go / Python は参考値（編集可）
-          </div>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={fmtChartData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+              <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 13 }} />
+              <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : String(v)} />
+              <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
+                formatter={(v: number, name: string) => [`${v.toLocaleString()} ops/sec`, name]} />
+              <Legend wrapperStyle={{ fontSize: 12, color: '#94a3b8' }} />
+              <Bar dataKey="SD-JWT VC"  fill={FMT_COLORS_SPD['SD-JWT VC']}  radius={[3,3,0,0]} />
+              <Bar dataKey="JSON-LD VC" fill={FMT_COLORS_SPD['JSON-LD VC']} radius={[3,3,0,0]} />
+              <Bar dataKey="mdoc"       fill={FMT_COLORS_SPD.mdoc}           radius={[3,3,0,0]} />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
-        <ResponsiveContainer width="100%" height={280}>
-          <BarChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-            <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 12 }} />
-            <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v.toString()} />
-            <Tooltip
-              contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
-              labelStyle={{ color: '#e2e8f0' }}
-              formatter={(v: number, name: string) => [`${v.toLocaleString()} ops/sec`, name]}
-            />
-            <Legend wrapperStyle={{ fontSize: 12, color: '#94a3b8' }} />
-            <Bar dataKey="TypeScript" fill={LANG_COLORS_SPD.TypeScript} radius={[3, 3, 0, 0]} />
-            <Bar dataKey="Go"         fill={LANG_COLORS_SPD.Go}         radius={[3, 3, 0, 0]} />
-            <Bar dataKey="Python"     fill={LANG_COLORS_SPD.Python}     radius={[3, 3, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
 
-      {/* Ratio table */}
-      <div style={panelStyle}>
-        <h3 style={sectionTitle}>TypeScript 実測値を基準とした相対速度</h3>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-          <thead>
-            <tr>{['操作', 'TypeScript', 'Go', '比率 (Go/TS)', 'Python', '比率 (Py/TS)'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
-          </thead>
-          <tbody>
-            {ops.map(op => {
-              const refKey = `${fmt}-${effectiveMode}-${op}`
-              const ref = refs[refKey] ?? { Go: 0, Python: 0 }
-              const ts = getTsOps(op)
-              const goRatio = ts > 0 ? (ref.Go / ts).toFixed(2) : '—'
-              const pyRatio = ts > 0 ? (ref.Python / ts).toFixed(2) : '—'
-              const goColor = ts > 0 ? (ref.Go >= ts ? '#4ade80' : '#f87171') : '#64748b'
-              const pyColor = ts > 0 ? (ref.Python >= ts ? '#4ade80' : '#f87171') : '#64748b'
-              return (
-                <tr key={op} style={{ borderBottom: '1px solid #1e293b' }}>
-                  <td style={tdStyle}>{op}</td>
-                  <td style={{ ...tdStyle, color: LANG_COLORS_SPD.TypeScript }}>
-                    {ts > 0 ? `${ts.toFixed(0)} ops/sec` : <span style={{ color: '#475569' }}>未計測</span>}
-                  </td>
-                  <td style={{ ...tdStyle, color: LANG_COLORS_SPD.Go }}>{ref.Go.toLocaleString()} ops/sec <span style={{ fontSize: 9, color: '#475569' }}>参考</span></td>
-                  <td style={{ ...tdStyle, color: goColor, fontWeight: 600 }}>{goRatio}x</td>
-                  <td style={{ ...tdStyle, color: LANG_COLORS_SPD.Python }}>{ref.Python.toLocaleString()} ops/sec <span style={{ fontSize: 9, color: '#475569' }}>参考</span></td>
-                  <td style={{ ...tdStyle, color: pyColor, fontWeight: 600 }}>{pyRatio}x</td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
+        {/* Format comparison table */}
+        <div style={panelStyle}>
+          <h3 style={sectionTitle}>フォーマット速度比較テーブル</h3>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr>{['操作', 'SD-JWT VC', 'JSON-LD VC', 'mdoc', 'SD-JWT / JSON-LD', 'SD-JWT / mdoc'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {ops.map(op => {
+                const get = (f: FmtKey) => {
+                  const m = f === 'JSON-LD VC' && mode === 'noLib' ? 'withLib' : mode
+                  return lang === 'TypeScript' ? getTsOps(f, m, op) : getRefOps(f, m, op, lang as 'Go' | 'Python')
+                }
+                const sd = get('SD-JWT VC'), jl = get('JSON-LD VC'), md = get('mdoc')
+                const fmtCell = (v: number, f: FmtKey) => v > 0
+                  ? <span style={{ color: FMT_COLORS_SPD[f] }}>{v.toFixed(0)} ops/sec{lang !== 'TypeScript' ? <span style={{ fontSize: 9, color: '#475569' }}> 参考</span> : ''}</span>
+                  : <span style={{ color: '#475569' }}>未計測</span>
+                return (
+                  <tr key={op} style={{ borderBottom: '1px solid #1e293b' }}>
+                    <td style={tdStyle}>{op}</td>
+                    <td style={tdStyle}>{fmtCell(sd, 'SD-JWT VC')}</td>
+                    <td style={tdStyle}>{fmtCell(jl, 'JSON-LD VC')}</td>
+                    <td style={tdStyle}>{fmtCell(md, 'mdoc')}</td>
+                    <td style={{ ...tdStyle, fontWeight: 600, color: '#fbbf24' }}>
+                      {jl > 0 && sd > 0 ? `${(sd/jl).toFixed(1)}x 高速` : '—'}
+                    </td>
+                    <td style={{ ...tdStyle, fontWeight: 600, color: '#a78bfa' }}>
+                      {md > 0 && sd > 0 ? `${(sd/md).toFixed(2)}x` : '—'}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </>}
 
-      {/* Editable reference inputs */}
+      {/* ====== 言語比較 ====== */}
+      {cmpMode === 'language' && <>
+        {/* Selectors: format + mode */}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          {fmts.map(f => (
+            <button key={f} onClick={() => { setFmt(f); if (f === 'JSON-LD VC') setMode('withLib') }}
+              style={{ ...filterBtn, borderColor: fmt === f ? FMT_COLORS_SPD[f] : '#334155', color: fmt === f ? FMT_COLORS_SPD[f] : '#64748b', background: fmt === f ? FMT_COLORS_SPD[f] + '15' : '#1e293b' }}>{f}</button>
+          ))}
+          <div style={{ width: 1, height: 24, background: '#334155' }} />
+          {!isJsonLdFmt && (['withLib', 'noLib'] as const).map(m => (
+            <button key={m} onClick={() => setMode(m)}
+              style={{ ...filterBtn, borderColor: mode === m ? '#a78bfa' : '#334155', color: mode === m ? '#a78bfa' : '#64748b', background: mode === m ? '#a78bfa15' : '#1e293b' }}>
+              {m === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'}
+            </button>
+          ))}
+          {isJsonLdFmt && <span style={{ fontSize: 11, color: '#64748b', padding: '5px 10px', background: '#1e293b', borderRadius: 8, border: '1px solid #334155' }}>ライブラリあり（no-lib は非実用）</span>}
+        </div>
+
+        {/* Chart: X=sign/verify, bars=3 languages */}
+        <div style={panelStyle}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+            <h3 style={sectionTitle}>
+              {fmt} — {effectiveMode === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'} — 言語別速度比較（ops/sec）
+            </h3>
+            <span style={{ fontSize: 10, color: '#475569', padding: '3px 8px', background: '#1e293b', borderRadius: 6, border: '1px solid #334155' }}>Go/Python は参考値（編集可）</span>
+          </div>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={langChartData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+              <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 13 }} />
+              <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : String(v)} />
+              <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
+                formatter={(v: number, name: string) => [`${v.toLocaleString()} ops/sec`, name]} />
+              <Legend wrapperStyle={{ fontSize: 12, color: '#94a3b8' }} />
+              <Bar dataKey="TypeScript" fill={LANG_COLORS_SPD.TypeScript} radius={[3,3,0,0]} />
+              <Bar dataKey="Go"         fill={LANG_COLORS_SPD.Go}         radius={[3,3,0,0]} />
+              <Bar dataKey="Python"     fill={LANG_COLORS_SPD.Python}     radius={[3,3,0,0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Ratio table */}
+        <div style={panelStyle}>
+          <h3 style={sectionTitle}>TypeScript 実測値を基準とした相対速度</h3>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr>{['操作', 'TypeScript', 'Go', '比率 (Go/TS)', 'Python', '比率 (Py/TS)'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {ops.map(op => {
+                const ts = getTsOps(fmt, effectiveMode, op)
+                const go = getRefOps(fmt, effectiveMode, op, 'Go')
+                const py = getRefOps(fmt, effectiveMode, op, 'Python')
+                const goR = ts > 0 ? (go/ts).toFixed(2) : '—'
+                const pyR = ts > 0 ? (py/ts).toFixed(2) : '—'
+                return (
+                  <tr key={op} style={{ borderBottom: '1px solid #1e293b' }}>
+                    <td style={tdStyle}>{op}</td>
+                    <td style={{ ...tdStyle, color: LANG_COLORS_SPD.TypeScript }}>{ts > 0 ? `${ts.toFixed(0)} ops/sec` : <span style={{ color: '#475569' }}>未計測</span>}</td>
+                    <td style={{ ...tdStyle, color: LANG_COLORS_SPD.Go }}>{go.toLocaleString()} ops/sec <span style={{ fontSize: 9, color: '#475569' }}>参考</span></td>
+                    <td style={{ ...tdStyle, fontWeight: 600, color: ts > 0 && go >= ts ? '#4ade80' : '#f87171' }}>{goR}x</td>
+                    <td style={{ ...tdStyle, color: LANG_COLORS_SPD.Python }}>{py.toLocaleString()} ops/sec <span style={{ fontSize: 9, color: '#475569' }}>参考</span></td>
+                    <td style={{ ...tdStyle, fontWeight: 600, color: ts > 0 && py >= ts ? '#4ade80' : '#f87171' }}>{pyR}x</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </>}
+
+      {/* ====== Shared: Editable reference inputs ====== */}
       <div style={panelStyle}>
-        <h3 style={sectionTitle}>参考値を編集（ローカルで計測した値を入力）</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          {ops.map(op => {
-            const refKey = `${fmt}-${effectiveMode}-${op}`
-            const ref = refs[refKey] ?? { Go: 0, Python: 0 }
+        <h3 style={sectionTitle}>参考値を編集（{mode === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'}）</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+          {allRefKeys.map(({ key, label, fmt: f }) => {
+            const ref = refs[key] ?? { Go: 0, Python: 0 }
+            const isNA = f === 'JSON-LD VC' && mode === 'noLib'
             return (
-              <div key={op} style={{ background: '#0f172a', borderRadius: 10, padding: '12px 16px' }}>
-                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10, fontWeight: 600 }}>{op}</div>
-                {(['Go', 'Python'] as const).map(lang => (
-                  <div key={lang} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                    <span style={{ fontSize: 11, color: LANG_COLORS_SPD[lang], minWidth: 70, fontWeight: 600 }}>{lang}</span>
-                    <input
-                      type="number" min="0" step="100"
-                      value={ref[lang]}
-                      onChange={e => updateRef(refKey, lang, e.target.value)}
-                      style={{ width: 100, padding: '4px 8px', background: '#1e293b', border: '1px solid #334155', borderRadius: 6, color: '#e2e8f0', fontSize: 12 }}
-                    />
-                    <span style={{ fontSize: 10, color: '#475569' }}>ops/sec</span>
+              <div key={key} style={{ background: '#0f172a', borderRadius: 10, padding: '10px 14px', opacity: isNA ? 0.4 : 1 }}>
+                <div style={{ fontSize: 11, color: FMT_COLORS_SPD[f], marginBottom: 8, fontWeight: 600 }}>
+                  {label}{isNA ? ' （N/A）' : ''}
+                </div>
+                {(['Go', 'Python'] as const).map(l => (
+                  <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 10, color: LANG_COLORS_SPD[l], minWidth: 64, fontWeight: 600 }}>{l}</span>
+                    <input type="number" min="0" step="100" disabled={isNA} value={ref[l]}
+                      onChange={e => updateRef(key, l, e.target.value)}
+                      style={{ width: 90, padding: '3px 7px', background: '#1e293b', border: '1px solid #334155', borderRadius: 6, color: '#e2e8f0', fontSize: 11 }} />
+                    <span style={{ fontSize: 9, color: '#475569' }}>ops/sec</span>
                   </div>
                 ))}
               </div>
