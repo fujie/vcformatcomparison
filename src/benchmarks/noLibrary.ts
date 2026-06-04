@@ -223,6 +223,88 @@ export async function mdocVerifyNoLib(mdocBytes: Uint8Array, publicKey: CryptoKe
   return true
 }
 
+// ---- Serialization-only benchmark (no crypto) ---------------
+// Measures encode/decode overhead WITHOUT any cryptographic operations.
+// This isolates the "binary vs text" difference from the algorithm difference.
+
+export interface SerialBenchResult {
+  format: 'SD-JWT VC' | 'mdoc'
+  operation: 'encode' | 'decode'
+  iterations: number
+  avgMs: number
+  opsPerSec: number
+  payloadSizeBytes: number
+}
+
+export async function runSerialBenchmarks(iterations = 200): Promise<SerialBenchResult[]> {
+  // --- SD-JWT VC: JSON + base64url (no signature, no hash) ---
+  const sdPayload = {
+    iss: 'https://issuer.example.com', iat: 0, exp: 3600,
+    vct: 'https://credentials.example.com/identity',
+    sub: 'did:example:holder123',
+    given_name: 'Taro', family_name: 'Yamada', birthdate: '1990-01-01',
+    address: { street_address: '1-1-1 Shibuya', locality: 'Tokyo', country: 'JP' },
+  }
+  const sdHeader = b64url(JSON.stringify({ alg: 'EdDSA', typ: 'vc+sd-jwt' }))
+
+  // Encode: JSON.stringify header+payload → base64url (no signing)
+  const t0 = performance.now()
+  let sdToken = ''
+  for (let i = 0; i < iterations; i++) {
+    const h = sdHeader
+    const p = b64url(JSON.stringify({ ...sdPayload, iat: i }))
+    sdToken = `${h}.${p}.AAABBBCCC` // dummy sig
+  }
+  const sdEncodeTotal = performance.now() - t0
+
+  // Decode: base64url → JSON.parse
+  const t1 = performance.now()
+  for (let i = 0; i < iterations; i++) {
+    const [h64, p64] = sdToken.split('.')
+    JSON.parse(atob(h64.replace(/-/g, '+').replace(/_/g, '/')))
+    JSON.parse(atob(p64.replace(/-/g, '+').replace(/_/g, '/')))
+  }
+  const sdDecodeTotal = performance.now() - t1
+  const sdSize = new TextEncoder().encode(sdToken).length
+
+  // --- mdoc: CBOR encode/decode (no signing, no hashing) ---
+  const mdocDoc = new Map<string, unknown>([
+    ['docType', 'org.iso.18013.5.1.mDL'],
+    ['issuerSigned', new Map([
+      ['nameSpaces', new Map([['org.iso.18013.5.1', [
+        cborEncode(new Map([['digestID', 0], ['elementIdentifier', 'family_name'], ['elementValue', 'Yamada']])),
+        cborEncode(new Map([['digestID', 1], ['elementIdentifier', 'given_name'],  ['elementValue', 'Taro']])),
+        cborEncode(new Map([['digestID', 2], ['elementIdentifier', 'birth_date'],  ['elementValue', '1990-01-01']])),
+        cborEncode(new Map([['digestID', 3], ['elementIdentifier', 'issue_date'],  ['elementValue', '2024-01-01']])),
+        cborEncode(new Map([['digestID', 4], ['elementIdentifier', 'expiry_date'], ['elementValue', '2029-01-01']])),
+        cborEncode(new Map([['digestID', 5], ['elementIdentifier', 'issuing_country'], ['elementValue', 'JP']])),
+        cborEncode(new Map([['digestID', 6], ['elementIdentifier', 'document_number'], ['elementValue', 'JP-12345678']])),
+      ]]])],
+      ['issuerAuth', [new Uint8Array([0xa1, 0x01, 0x26]), new Map(), new Uint8Array(16), new Uint8Array(64)]],
+    ])],
+  ])
+
+  const t2 = performance.now()
+  let mdocBytes = new Uint8Array(0)
+  for (let i = 0; i < iterations; i++) {
+    mdocBytes = cborEncode(mdocDoc)
+  }
+  const mdocEncodeTotal = performance.now() - t2
+
+  const t3 = performance.now()
+  for (let i = 0; i < iterations; i++) {
+    cborDecode(mdocBytes)
+  }
+  const mdocDecodeTotal = performance.now() - t3
+
+  return [
+    { format: 'SD-JWT VC', operation: 'encode', iterations, avgMs: sdEncodeTotal / iterations,   opsPerSec: (iterations / sdEncodeTotal) * 1000,   payloadSizeBytes: sdSize },
+    { format: 'SD-JWT VC', operation: 'decode', iterations, avgMs: sdDecodeTotal / iterations,   opsPerSec: (iterations / sdDecodeTotal) * 1000,   payloadSizeBytes: sdSize },
+    { format: 'mdoc',       operation: 'encode', iterations, avgMs: mdocEncodeTotal / iterations, opsPerSec: (iterations / mdocEncodeTotal) * 1000, payloadSizeBytes: mdocBytes.length },
+    { format: 'mdoc',       operation: 'decode', iterations, avgMs: mdocDecodeTotal / iterations, opsPerSec: (iterations / mdocDecodeTotal) * 1000, payloadSizeBytes: mdocBytes.length },
+  ]
+}
+
 // ---- Benchmarks -------------------------------------------
 
 export interface NoLibResult {

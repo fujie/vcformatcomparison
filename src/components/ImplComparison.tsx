@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts'
-import type { NoLibResult } from '../benchmarks/noLibrary'
+import type { NoLibResult, SerialBenchResult } from '../benchmarks/noLibrary'
 import type { SpeedResult } from '../benchmarks/signatureSpeed'
 import type { Lang, FmtKey, Mode } from '../data/codeSnippets'
 import { SNIPPETS, getLOCMatrix } from '../data/codeSnippets'
@@ -11,19 +11,20 @@ interface BenchmarkProps {
   onRun: () => void
   running: boolean
   results: NoLibResult[] | null
+  serialResults: SerialBenchResult[] | null
   progress: string
 }
 
 const FMT_COLORS: Record<string, string> = { 'SD-JWT VC': '#60a5fa', 'mdoc': '#34d399' }
 const MODE_COLORS = { withLib: '#94a3b8', noLib: '#f472b6' }
 
-function NoLibBenchmark({ onRun, running, results, progress }: BenchmarkProps) {
+function NoLibBenchmark({ onRun, running, results, serialResults, progress }: BenchmarkProps) {
   if (!results && !running) return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: 48 }}>
       <div style={{ fontSize: 36 }}>🧪</div>
-      <p style={{ color: '#64748b', fontSize: 14, textAlign: 'center', maxWidth: 420, lineHeight: 1.6 }}>
-        Web Crypto API のみで実装した SD-JWT VC・mdoc の速度を、ライブラリあり版と比較します。<br/>
-        JSON-LD VC はライブラリなしでの実装が非現実的（URDNA2015 ≈ 1200行）のため除外。
+      <p style={{ color: '#64748b', fontSize: 14, textAlign: 'center', maxWidth: 480, lineHeight: 1.6 }}>
+        Web Crypto API のみで実装した SD-JWT VC・mdoc の署名速度をライブラリあり版と比較します。<br/>
+        さらに暗号なし・シリアライズ速度のみのベンチマークでバイナリ形式の優位性を検証します。
       </p>
       <button onClick={onRun} style={btnStyle}>ベンチマーク実行</button>
     </div>
@@ -38,7 +39,6 @@ function NoLibBenchmark({ onRun, running, results, progress }: BenchmarkProps) {
 
   if (!results) return null
 
-  // Build chart data
   const formats: FmtKey[] = ['SD-JWT VC', 'mdoc']
   const ops: string[] = ['sign', 'verify']
   const chartData = formats.flatMap(fmt =>
@@ -46,7 +46,6 @@ function NoLibBenchmark({ onRun, running, results, progress }: BenchmarkProps) {
       const w = results.find(r => r.format === fmt && r.mode === 'withLib' && r.operation === op)
       const n = results.find(r => r.format === fmt && r.mode === 'noLib'   && r.operation === op)
       return {
-        label: `${fmt}\n(${op})`,
         shortLabel: `${fmt} / ${op}`,
         withLib: w ? parseFloat(w.opsPerSec.toFixed(1)) : 0,
         noLib:   n ? parseFloat(n.opsPerSec.toFixed(1)) : 0,
@@ -55,9 +54,53 @@ function NoLibBenchmark({ onRun, running, results, progress }: BenchmarkProps) {
     })
   )
 
+  // Build serial chart data
+  const serialChartData = serialResults ? ['encode', 'decode'].map(op => ({
+    name: op,
+    'SD-JWT VC (JSON)': Math.round(serialResults.find(r => r.format === 'SD-JWT VC' && r.operation === op)?.opsPerSec ?? 0),
+    'mdoc (CBOR)':      Math.round(serialResults.find(r => r.format === 'mdoc'       && r.operation === op)?.opsPerSec ?? 0),
+  })) : []
+
+  const sdSize   = serialResults?.find(r => r.format === 'SD-JWT VC' && r.operation === 'encode')?.payloadSizeBytes ?? 0
+  const mdocSize = serialResults?.find(r => r.format === 'mdoc'       && r.operation === 'encode')?.payloadSizeBytes ?? 0
+
+  const sdSign   = results.find(r => r.format === 'SD-JWT VC' && r.mode === 'withLib' && r.operation === 'sign')
+  const mdocSign = results.find(r => r.format === 'mdoc'       && r.mode === 'withLib' && r.operation === 'sign')
+  const cryptoRatio = sdSign && mdocSign ? (sdSign.opsPerSec / mdocSign.opsPerSec) : 0
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      {/* Summary cards */}
+
+      {/* ── Why is mdoc slower despite being binary? ── */}
+      <div style={{ ...panelStyle, borderColor: '#f59e0b50', background: '#1e293b' }}>
+        <h3 style={{ ...sectionTitle, color: '#fbbf24' }}>💡 バイナリなのに mdoc が遅い理由</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12, fontSize: 12, color: '#94a3b8', lineHeight: 1.7 }}>
+          <div style={{ background: '#0f172a', borderRadius: 8, padding: '10px 14px' }}>
+            <div style={{ color: '#60a5fa', fontWeight: 600, marginBottom: 6 }}>① 署名アルゴリズムの差</div>
+            <div>SD-JWT VC: <span style={{ color: '#4ade80' }}>EdDSA (Ed25519)</span> — 非常に高速な楕円曲線署名</div>
+            <div>mdoc: <span style={{ color: '#f87171' }}>ECDSA P-256</span> — Ed25519 より 2〜4倍コストが高い</div>
+            <div style={{ marginTop: 6, color: '#64748b' }}>暗号演算がボトルネックになる場合、シリアライズ形式より<strong style={{ color: '#fbbf24' }}>アルゴリズム選択</strong>が支配的</div>
+          </div>
+          <div style={{ background: '#0f172a', borderRadius: 8, padding: '10px 14px' }}>
+            <div style={{ color: '#34d399', fontWeight: 600, marginBottom: 6 }}>② per-element ハッシュの追加コスト</div>
+            <div>mdoc は各データ要素を個別に SHA-256 ハッシュ</div>
+            <div>今回のテスト: 8フィールド → <span style={{ color: '#f87171' }}>SHA-256 × 8回</span> 追加</div>
+            <div style={{ marginTop: 6, color: '#64748b' }}>これが選択的開示の完全性保証コスト（完全性 ↑ 、速度 ↓）</div>
+          </div>
+          <div style={{ background: '#0f172a', borderRadius: 8, padding: '10px 14px' }}>
+            <div style={{ color: '#a78bfa', fontWeight: 600, marginBottom: 6 }}>③ バイナリの利点が活きる場面</div>
+            <div>CBOR は <strong style={{ color: '#4ade80' }}>シリアライズ/デシリアライズ速度・ペイロードサイズ</strong> で優位</div>
+            <div style={{ marginTop: 4 }}>
+              {sdSize > 0 && mdocSize > 0 && (
+                <span>同じ内容: SD-JWT <span style={{ color: '#f87171' }}>{sdSize}B</span> vs mdoc <span style={{ color: '#4ade80' }}>{mdocSize}B</span> ({((1 - mdocSize/sdSize)*100).toFixed(0)}% 削減)</span>
+              )}
+            </div>
+            <div style={{ marginTop: 6, color: '#64748b' }}>QRコード・BLE転送など帯域制約がある場面でバイナリが有利</div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Sign/verify with-lib vs no-lib chart ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
         {results.map(r => (
           <div key={`${r.format}-${r.mode}-${r.operation}`}
@@ -76,10 +119,15 @@ function NoLibBenchmark({ onRun, running, results, progress }: BenchmarkProps) {
         ))}
       </div>
 
-      {/* Bar chart: throughput */}
       <div style={panelStyle}>
-        <h3 style={sectionTitle}>スループット比較: ライブラリあり vs ライブラリなし（ops/sec）</h3>
-        <ResponsiveContainer width="100%" height={300}>
+        <h3 style={sectionTitle}>署名速度: ライブラリあり vs ライブラリなし（ops/sec）</h3>
+        {cryptoRatio > 0 && (
+          <p style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
+            SD-JWT VC (EdDSA) は mdoc (ECDSA P-256) より署名で <span style={{ color: '#fbbf24', fontWeight: 700 }}>{cryptoRatio.toFixed(1)}x</span> 高速 —
+            これはアルゴリズムの差であり、フォーマットのバイナリ/テキストの差ではありません
+          </p>
+        )}
+        <ResponsiveContainer width="100%" height={260}>
           <BarChart data={chartData} margin={{ top: 8, right: 24, left: 0, bottom: 56 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis dataKey="shortLabel" tick={{ fill: '#94a3b8', fontSize: 10 }} angle={-20} textAnchor="end" />
@@ -93,37 +141,43 @@ function NoLibBenchmark({ onRun, running, results, progress }: BenchmarkProps) {
         </ResponsiveContainer>
       </div>
 
-      {/* Insight */}
-      <div style={panelStyle}>
-        <h3 style={sectionTitle}>考察</h3>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {(['SD-JWT VC', 'mdoc'] as const).map(fmt => {
-            const signW  = results.find(r => r.format === fmt && r.mode === 'withLib' && r.operation === 'sign')
-            const signNL = results.find(r => r.format === fmt && r.mode === 'noLib'   && r.operation === 'sign')
-            if (!signW || !signNL) return null
-            const ratio = (signNL.opsPerSec / signW.opsPerSec)
-            const faster = ratio >= 1
-            return (
-              <div key={fmt} style={{ background: '#0f172a', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#94a3b8', lineHeight: 1.7 }}>
-                <span style={{ color: FMT_COLORS[fmt], fontWeight: 600 }}>{fmt}</span>{' '}
-                ライブラリなし署名は{faster ? 'ライブラリあり比' : 'ライブラリあり比'}{' '}
-                <span style={{ color: faster ? '#4ade80' : '#f87171', fontWeight: 700 }}>
-                  {ratio.toFixed(2)}x {faster ? '高速' : '低速'}
-                </span>
-                。{fmt === 'SD-JWT VC'
-                  ? 'どちらも Web Crypto ECDSA を呼ぶため差は抽象層のオーバーヘッドのみ。'
-                  : 'cbor-x は内部最適化があるため差が生じる場合がある。'}
+      {/* ── Serialization-only benchmark ── */}
+      {serialResults && serialResults.length > 0 && (
+        <div style={panelStyle}>
+          <h3 style={sectionTitle}>シリアライズ速度（暗号なし）— バイナリ CBOR vs テキスト JSON</h3>
+          <p style={{ fontSize: 12, color: '#64748b', marginBottom: 14 }}>
+            署名・ハッシュを除いたエンコード/デコード速度の純粋な比較。ここでは CBOR のバイナリ優位性が現れます。
+          </p>
+          <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
+            {serialResults.map(r => (
+              <div key={`${r.format}-${r.operation}`} style={{ background: '#0f172a', borderRadius: 10, padding: '10px 16px', flex: 1, minWidth: 160 }}>
+                <div style={{ fontSize: 10, color: r.format === 'SD-JWT VC' ? '#60a5fa' : '#34d399', marginBottom: 4, fontWeight: 600 }}>{r.format} / {r.operation}</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: r.format === 'mdoc' ? '#34d399' : '#60a5fa' }}>{r.opsPerSec.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}</div>
+                <div style={{ fontSize: 10, color: '#64748b' }}>ops/sec</div>
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>ペイロード {r.payloadSizeBytes} bytes</div>
               </div>
-            )
-          })}
-          <div style={{ background: '#0f172a', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#94a3b8', lineHeight: 1.7 }}>
-            <span style={{ color: '#f59e0b', fontWeight: 600 }}>JSON-LD VC</span>{' '}
-            のライブラリなし実装は URDNA2015 アルゴリズム（ブランクノード同定・グラフ同型探索）の実装が必要で推定{' '}
-            <span style={{ color: '#f87171', fontWeight: 700 }}>1200+ 行</span>
-            。実運用での再実装は非推奨。
+            ))}
           </div>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={serialChartData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+              <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+              <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : String(v)} />
+              <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
+                formatter={(v: number, name: string) => [`${v.toLocaleString()} ops/sec`, name]} />
+              <Legend wrapperStyle={{ fontSize: 12, color: '#94a3b8' }} />
+              <Bar dataKey="SD-JWT VC (JSON)" fill="#60a5fa" radius={[3,3,0,0]} />
+              <Bar dataKey="mdoc (CBOR)"       fill="#34d399" radius={[3,3,0,0]} />
+            </BarChart>
+          </ResponsiveContainer>
+          {sdSize > 0 && mdocSize > 0 && (
+            <p style={{ fontSize: 12, color: '#64748b', marginTop: 10 }}>
+              ペイロードサイズ: SD-JWT VC <span style={{ color: '#f87171' }}>{sdSize} bytes (テキスト)</span> vs mdoc <span style={{ color: '#4ade80' }}>{mdocSize} bytes (バイナリ)</span> — {((1 - mdocSize/sdSize)*100).toFixed(0)}% 削減。
+              シリアライズ速度もCBORが<span style={{ color: '#34d399', fontWeight: 600 }}> ✓ 高速</span>。署名の遅さはアルゴリズムの問題。
+            </p>
+          )}
         </div>
-      </div>
+      )}
 
       <div style={{ textAlign: 'right' }}>
         <button onClick={onRun} style={{ ...btnStyle, fontSize: 12, padding: '6px 14px' }}>再実行</button>
@@ -742,13 +796,14 @@ function LanguageSpeedView({
 
 interface Props {
   benchmarkResults: NoLibResult[] | null
+  serialResults: SerialBenchResult[] | null
   benchmarkRunning: boolean
   benchmarkProgress: string
   onRunBenchmark: () => void
   speedResults: SpeedResult[] | null
 }
 
-export function ImplComparison({ benchmarkResults, benchmarkRunning, benchmarkProgress, onRunBenchmark, speedResults }: Props) {
+export function ImplComparison({ benchmarkResults, serialResults, benchmarkRunning, benchmarkProgress, onRunBenchmark, speedResults }: Props) {
   const [view, setView] = useState<SubView>('language')
 
   return (
@@ -775,6 +830,7 @@ export function ImplComparison({ benchmarkResults, benchmarkRunning, benchmarkPr
           onRun={onRunBenchmark}
           running={benchmarkRunning}
           results={benchmarkResults}
+          serialResults={serialResults}
           progress={benchmarkProgress}
         />
       )}

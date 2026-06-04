@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react'
 import type { SpeedResult } from './benchmarks/signatureSpeed'
 import type { ComplexityMetric } from './benchmarks/deserializationComplexity'
 import type { SecurityTest } from './benchmarks/normalizationSecurity'
-import type { NoLibResult } from './benchmarks/noLibrary'
+import type { NoLibResult, SerialBenchResult } from './benchmarks/noLibrary'
 import { SpeedResults } from './components/SpeedResults'
 import { ComplexityResults } from './components/ComplexityResults'
 import { SecurityResults } from './components/SecurityResults'
@@ -29,6 +29,7 @@ export default function App() {
   const [complexityResults, setComplexityResults] = useState<ComplexityMetric[] | null>(null)
   const [securityResults, setSecurityResults] = useState<SecurityTest[] | null>(null)
   const [noLibResults, setNoLibResults] = useState<NoLibResult[] | null>(null)
+  const [serialResults, setSerialResults] = useState<SerialBenchResult[] | null>(null)
   const [noLibRunning, setNoLibRunning] = useState(false)
   const [noLibProgress, setNoLibProgress] = useState('')
 
@@ -68,9 +69,13 @@ export default function App() {
     setNoLibRunning(true)
     setNoLibProgress('準備中...')
     try {
-      const { runNoLibBenchmarks } = await import('./benchmarks/noLibrary')
+      const { runNoLibBenchmarks, runSerialBenchmarks } = await import('./benchmarks/noLibrary')
+      setNoLibProgress('署名速度ベンチマーク中...')
       const results = await runNoLibBenchmarks(iterations, setNoLibProgress)
       setNoLibResults(results)
+      setNoLibProgress('シリアライズ速度ベンチマーク中...')
+      const serial = await runSerialBenchmarks(200)
+      setSerialResults(serial)
     } catch (e) {
       console.error(e)
       setNoLibProgress(`エラー: ${(e as Error).message}`)
@@ -156,6 +161,7 @@ export default function App() {
         {tab === 'impl' && (
           <ImplComparison
             benchmarkResults={noLibResults}
+            serialResults={serialResults}
             benchmarkRunning={noLibRunning}
             benchmarkProgress={noLibProgress}
             onRunBenchmark={runNoLib}
