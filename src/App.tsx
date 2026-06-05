@@ -7,8 +7,9 @@ import { SpeedResults } from './components/SpeedResults'
 import { ComplexityResults } from './components/ComplexityResults'
 import { SecurityResults } from './components/SecurityResults'
 import { ImplComparison } from './components/ImplComparison'
+import { ReportView } from './components/ReportView'
 
-type Tab = 'speed' | 'complexity' | 'security' | 'impl'
+type Tab = 'speed' | 'complexity' | 'security' | 'impl' | 'report'
 type Status = 'idle' | 'running' | 'done' | 'error'
 
 const TABS: { id: Tab; label: string; icon: string; desc: string }[] = [
@@ -16,6 +17,7 @@ const TABS: { id: Tab; label: string; icon: string; desc: string }[] = [
   { id: 'complexity', icon: '📐', label: 'デシリアライズ複雑性', desc: 'LOC・非同期ステップ・循環的複雑度' },
   { id: 'security',   icon: '🔐', label: '正規化セキュリティ',   desc: 'DoS・SSRF・インジェクション定量評価' },
   { id: 'impl',       icon: '🔤', label: '実装比較',             desc: 'Go・Python・TS / ライブラリなし実装' },
+  { id: 'report',     icon: '📋', label: '結果レポート',         desc: '一覧表示・JSON/CSV/Markdown エクスポート' },
 ]
 
 export default function App() {
@@ -169,7 +171,19 @@ export default function App() {
           />
         )}
 
-        {tab !== 'impl' && status === 'idle' && (
+        {/* 結果レポートタブは常に表示（データがなければ案内のみ） */}
+        {tab === 'report' && (
+          <ReportView
+            speedResults={speedResults}
+            complexityResults={complexityResults}
+            securityResults={securityResults}
+            noLibResults={noLibResults}
+            serialResults={serialResults}
+            iterations={iterations}
+          />
+        )}
+
+        {tab !== 'impl' && tab !== 'report' && status === 'idle' && (
           <div style={emptyStyle}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>🔬</div>
             <h2 style={{ color: '#e2e8f0', fontSize: 20, marginBottom: 8 }}>比較ベンチマークを実行してください</h2>
@@ -203,7 +217,7 @@ export default function App() {
           </div>
         )}
 
-        {tab !== 'impl' && status !== 'idle' && (
+        {tab !== 'impl' && tab !== 'report' && status !== 'idle' && (
           <>
             {tab === 'speed' && speedResults && <SpeedResults results={speedResults} />}
             {tab === 'complexity' && complexityResults && <ComplexityResults results={complexityResults} />}
