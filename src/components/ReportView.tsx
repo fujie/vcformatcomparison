@@ -3,6 +3,7 @@ import type { SpeedResult } from '../benchmarks/signatureSpeed'
 import type { ComplexityMetric } from '../benchmarks/deserializationComplexity'
 import type { SecurityTest } from '../benchmarks/normalizationSecurity'
 import type { NoLibResult, SerialBenchResult } from '../benchmarks/noLibrary'
+import type { RefValues } from '../data/referenceValues'
 
 interface Props {
   speedResults:      SpeedResult[]      | null
@@ -11,6 +12,7 @@ interface Props {
   noLibResults:      NoLibResult[]      | null
   serialResults:     SerialBenchResult[]| null
   iterations:        number
+  refValues:         RefValues
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -94,11 +96,31 @@ function buildCsv(props: Props, timestamp: string): string {
   }
   lines.push('')
 
-  // 4. ライブラリなし vs あり
-  row('## ライブラリなし vs あり（TypeScript）')
-  row('フォーマット', 'モード', '操作', '反復数', '平均(ms)', 'ops/sec')
+  // 4. ライブラリなし vs あり（全言語）
+  row('## ライブラリなし vs あり（全言語）')
+  row('フォーマット', '言語', 'モード', '操作', '反復数/参考', '平均(ms)', 'ops/sec', '備考')
   for (const r of props.noLibResults ?? []) {
-    row(r.format, r.mode, r.operation, r.iterations, fmt(r.avgMs, 3), fmt(r.opsPerSec, 1))
+    row(r.format, 'TypeScript', r.mode === 'withLib' ? 'ライブラリあり' : 'ライブラリなし',
+        r.operation, r.iterations, fmt(r.avgMs, 3), fmt(r.opsPerSec, 1), '実測値')
+  }
+  for (const op of ['sign', 'verify'] as const) {
+    const r = props.speedResults?.find(x => x.format === 'JSON-LD VC' && x.operation === op)
+    if (r) row('JSON-LD VC', 'TypeScript', 'ライブラリあり', op, r.iterations, fmt(r.avgMs, 3), fmt(r.opsPerSec, 1), '実測値')
+  }
+  const _fmts2 = ['SD-JWT VC', 'JSON-LD VC', 'mdoc'] as const
+  const _modes2 = ['withLib', 'noLib'] as const
+  for (const f of _fmts2) {
+    for (const m of _modes2) {
+      if (f === 'JSON-LD VC' && m === 'noLib') continue
+      for (const op of ['sign', 'verify'] as const) {
+        const ref = props.refValues[`${f}-${m}-${op}`]
+        if (ref) {
+          const mLabel = m === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'
+          row(f, 'Go',     mLabel, op, '参考', '—', ref.Go,     '参考値(Apple M2 Pro)')
+          row(f, 'Python', mLabel, op, '参考', '—', ref.Python, '参考値(Apple M2 Pro)')
+        }
+      }
+    }
   }
   lines.push('')
 
@@ -162,12 +184,30 @@ function buildMarkdown(props: Props, timestamp: string): string {
     lines.push('')
   }
 
-  if (props.noLibResults?.length) {
-    lines.push('## 🧪 ライブラリなし vs あり（TypeScript）')
-    lines.push(tableRow('フォーマット', 'モード', '操作', '平均(ms)', 'ops/sec'))
-    lines.push(sep(5))
-    for (const r of props.noLibResults) {
-      lines.push(tableRow(r.format, r.mode, r.operation, fmt(r.avgMs, 3), fmt(r.opsPerSec, 1)))
+  {
+    lines.push('## 🧪 ライブラリなし vs あり — 言語別比較')
+    lines.push(tableRow('フォーマット', '言語', 'モード', '操作', '平均(ms)', 'ops/sec', '備考'))
+    lines.push(sep(7))
+    for (const r of props.noLibResults ?? []) {
+      lines.push(tableRow(r.format, 'TypeScript', r.mode === 'withLib' ? 'ライブラリあり' : 'ライブラリなし',
+        r.operation, fmt(r.avgMs, 3), fmt(r.opsPerSec, 1), '実測値'))
+    }
+    for (const op of ['sign', 'verify'] as const) {
+      const r = props.speedResults?.find(x => x.format === 'JSON-LD VC' && x.operation === op)
+      if (r) lines.push(tableRow('JSON-LD VC', 'TypeScript', 'ライブラリあり', op, fmt(r.avgMs, 3), fmt(r.opsPerSec, 1), '実測値'))
+    }
+    const _mfmts = ['SD-JWT VC', 'JSON-LD VC', 'mdoc'] as const
+    for (const f of _mfmts) {
+      for (const m of ['withLib', 'noLib'] as const) {
+        if (f === 'JSON-LD VC' && m === 'noLib') continue
+        for (const op of ['sign', 'verify'] as const) {
+          const ref = props.refValues[`${f}-${m}-${op}`]
+          if (!ref) continue
+          const ml = m === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'
+          lines.push(tableRow(f, 'Go',     ml, op, '—', ref.Go,     '参考値'))
+          lines.push(tableRow(f, 'Python', ml, op, '—', ref.Python, '参考値'))
+        }
+      }
     }
     lines.push('')
   }
@@ -370,18 +410,64 @@ export function ReportView(props: Props) {
         />
       ) : <NotRun label="セキュリティテスト" />}
 
-      {/* ライブラリなし */}
-      {props.noLibResults ? (
-        <SectionTable
-          title="🧪 ライブラリなし vs あり（TypeScript / ECDSA P-256）"
-          color="#f472b6"
-          headers={['フォーマット', 'モード', '操作', '反復数', '平均(ms)', 'ops/sec']}
-          rows={props.noLibResults.map(r => [
-            r.format, r.mode === 'withLib' ? 'ライブラリあり' : 'ライブラリなし',
-            r.operation, r.iterations, fmt(r.avgMs, 3), fmt(r.opsPerSec, 1),
-          ])}
-        />
-      ) : <NotRun label="ライブラリなし vs あり" />}
+      {/* ライブラリなし vs あり — TypeScript + Go + Python */}
+      {(() => {
+        const fmts = ['SD-JWT VC', 'JSON-LD VC', 'mdoc'] as const
+        const modes = ['withLib', 'noLib'] as const
+        const ops   = ['sign', 'verify'] as const
+        const langs = ['Go', 'Python'] as const
+
+        // Build unified rows: TypeScript (actual) + Go/Python (reference)
+        const rows: (string | number)[][] = []
+
+        for (const f of fmts) {
+          for (const m of modes) {
+            if (f === 'JSON-LD VC' && m === 'noLib') continue // no-lib not practical
+            for (const op of ops) {
+              // TypeScript row
+              const tsResult = f === 'JSON-LD VC'
+                ? props.speedResults?.find(r => r.format === 'JSON-LD VC' && r.operation === op)
+                : props.noLibResults?.find(r => r.format === f && r.mode === m && r.operation === op)
+              if (tsResult || props.noLibResults || props.speedResults) {
+                rows.push([
+                  f,
+                  'TypeScript',
+                  m === 'withLib' ? 'ライブラリあり' : 'ライブラリなし',
+                  op,
+                  tsResult ? tsResult.iterations : '—',
+                  tsResult ? fmt(tsResult.avgMs, 3) : '未計測',
+                  tsResult ? fmt(tsResult.opsPerSec, 1) : '未計測',
+                  '実測値',
+                ])
+              }
+              // Go / Python reference rows
+              const refKey = `${f}-${m}-${op}`
+              for (const lang of langs) {
+                const opsVal = props.refValues[refKey]?.[lang] ?? 0
+                rows.push([
+                  f,
+                  lang,
+                  m === 'withLib' ? 'ライブラリあり' : 'ライブラリなし',
+                  op,
+                  '参考',
+                  '—',
+                  opsVal > 0 ? opsVal.toLocaleString() : '—',
+                  '参考値（Apple M2 Pro）',
+                ])
+              }
+            }
+          }
+        }
+
+        return (
+          <SectionTable
+            title="🧪 ライブラリなし vs あり — 言語別比較（TypeScript 実測 / Go・Python 参考値）"
+            color="#f472b6"
+            headers={['フォーマット', '言語', 'モード', '操作', '反復数', '平均(ms)', 'ops/sec', '備考']}
+            rows={rows}
+          />
+        )
+      })()}
 
       {/* シリアライズ */}
       {props.serialResults ? (

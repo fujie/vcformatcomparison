@@ -3,6 +3,8 @@ import type { SpeedResult } from './benchmarks/signatureSpeed'
 import type { ComplexityMetric } from './benchmarks/deserializationComplexity'
 import type { SecurityTest } from './benchmarks/normalizationSecurity'
 import type { NoLibResult, SerialBenchResult } from './benchmarks/noLibrary'
+import { DEFAULT_REF } from './data/referenceValues'
+import type { RefValues } from './data/referenceValues'
 import { SpeedResults } from './components/SpeedResults'
 import { ComplexityResults } from './components/ComplexityResults'
 import { SecurityResults } from './components/SecurityResults'
@@ -34,6 +36,14 @@ export default function App() {
   const [serialResults, setSerialResults] = useState<SerialBenchResult[] | null>(null)
   const [noLibRunning, setNoLibRunning] = useState(false)
   const [noLibProgress, setNoLibProgress] = useState('')
+  const [refValues, setRefValues] = useState<RefValues>(DEFAULT_REF)
+
+  const handleRefChange = useCallback((key: string, lang: 'Go' | 'Python', val: string) => {
+    const n = parseFloat(val)
+    if (!isNaN(n) && n >= 0) {
+      setRefValues(prev => ({ ...prev, [key]: { ...prev[key], [lang]: n } }))
+    }
+  }, [])
 
   const runBenchmarks = useCallback(async () => {
     setStatus('running')
@@ -168,6 +178,8 @@ export default function App() {
             benchmarkProgress={noLibProgress}
             onRunBenchmark={runNoLib}
             speedResults={speedResults}
+            refValues={refValues}
+            onRefChange={handleRefChange}
           />
         )}
 
@@ -180,6 +192,7 @@ export default function App() {
             noLibResults={noLibResults}
             serialResults={serialResults}
             iterations={iterations}
+            refValues={refValues}
           />
         )}
 

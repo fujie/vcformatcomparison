@@ -4,6 +4,8 @@ import type { NoLibResult, SerialBenchResult } from '../benchmarks/noLibrary'
 import type { SpeedResult } from '../benchmarks/signatureSpeed'
 import type { Lang, FmtKey, Mode } from '../data/codeSnippets'
 import { SNIPPETS, getLOCMatrix } from '../data/codeSnippets'
+import type { RefValues } from '../data/referenceValues'
+import { DEFAULT_REF } from '../data/referenceValues'
 
 type SubView = 'benchmark' | 'language' | 'langspeed'
 
@@ -351,20 +353,7 @@ function LanguageView() {
 const LANG_COLORS_SPD = { TypeScript: '#60a5fa', Go: '#34d399', Python: '#f59e0b' }
 const FMT_COLORS_SPD: Record<FmtKey, string> = { 'SD-JWT VC': '#60a5fa', 'JSON-LD VC': '#f59e0b', mdoc: '#34d399' }
 
-// Default reference values (ops/sec) — measured on Apple M2 Pro.
-// Users can overwrite with their own measurements.
-const DEFAULT_REF: Record<string, { Go: number; Python: number }> = {
-  'SD-JWT VC-withLib-sign':    { Go: 28000, Python: 7200  },
-  'SD-JWT VC-withLib-verify':  { Go: 33000, Python: 9100  },
-  'SD-JWT VC-noLib-sign':      { Go: 22000, Python: 5800  },
-  'SD-JWT VC-noLib-verify':    { Go: 27000, Python: 7600  },
-  'JSON-LD VC-withLib-sign':   { Go: 820,   Python: 160   },
-  'JSON-LD VC-withLib-verify': { Go: 820,   Python: 160   },
-  'mdoc-withLib-sign':         { Go: 9200,  Python: 2100  },
-  'mdoc-withLib-verify':       { Go: 12500, Python: 2600  },
-  'mdoc-noLib-sign':           { Go: 8100,  Python: 1900  },
-  'mdoc-noLib-verify':         { Go: 11200, Python: 2300  },
-}
+// DEFAULT_REF is now defined in src/data/referenceValues.ts (shared with ReportView)
 
 const GO_SCRIPT = `// go run bench.go   (requires: go get github.com/golang-jwt/jwt/v5 github.com/fxamacker/cbor/v2)
 package main
@@ -480,34 +469,31 @@ bench("mdoc CBOR encode+sign (with cbor2)", N,
 function LanguageSpeedView({
   noLibResults,
   speedResults,
+  refValues,
+  onRefChange,
 }: {
   noLibResults: NoLibResult[] | null
   speedResults: SpeedResult[] | null
+  refValues: RefValues
+  onRefChange: (key: string, lang: 'Go' | 'Python', val: string) => void
 }) {
   type CmpMode = 'format' | 'language'
-  const [cmpMode, setCmpMode] = useState<CmpMode>('format')  // format=フォーマット比較, language=言語比較
+  const [cmpMode, setCmpMode] = useState<CmpMode>('format')
 
-  // Format-compare selectors (language + mode fixed)
   const [lang, setLang] = useState<'TypeScript' | 'Go' | 'Python'>('TypeScript')
-
-  // Language-compare selectors (format fixed)
   const [fmt, setFmt] = useState<FmtKey>('SD-JWT VC')
-
-  // Shared: mode
   const [mode, setMode] = useState<'withLib' | 'noLib'>('withLib')
-
-  // Reference values (Go/Python, editable)
-  const [refs, setRefs] = useState<Record<string, { Go: number; Python: number }>>(DEFAULT_REF)
   const [showScript, setShowScript] = useState<'none' | 'go' | 'python'>('none')
+
+  // Use lifted ref state from App.tsx (shared with ReportView)
+  const refs = refValues
 
   const ops = ['sign', 'verify'] as const
   const fmts: FmtKey[] = ['SD-JWT VC', 'JSON-LD VC', 'mdoc']
   const langs: ('TypeScript' | 'Go' | 'Python')[] = ['TypeScript', 'Go', 'Python']
 
-  const updateRef = (key: string, l: 'Go' | 'Python', val: string) => {
-    const n = parseFloat(val)
-    if (!isNaN(n) && n >= 0) setRefs(p => ({ ...p, [key]: { ...p[key], [l]: n } }))
-  }
+  // Delegate to App.tsx (shared with ReportView)
+  const updateRef = onRefChange
 
   // Get TypeScript ops/sec for any format+mode+op
   const getTsOps = (f: FmtKey, m: 'withLib' | 'noLib', op: 'sign' | 'verify'): number => {
@@ -801,9 +787,11 @@ interface Props {
   benchmarkProgress: string
   onRunBenchmark: () => void
   speedResults: SpeedResult[] | null
+  refValues: RefValues
+  onRefChange: (key: string, lang: 'Go' | 'Python', val: string) => void
 }
 
-export function ImplComparison({ benchmarkResults, serialResults, benchmarkRunning, benchmarkProgress, onRunBenchmark, speedResults }: Props) {
+export function ImplComparison({ benchmarkResults, serialResults, benchmarkRunning, benchmarkProgress, onRunBenchmark, speedResults, refValues, onRefChange }: Props) {
   const [view, setView] = useState<SubView>('language')
 
   return (
@@ -836,7 +824,7 @@ export function ImplComparison({ benchmarkResults, serialResults, benchmarkRunni
       )}
       {view === 'language'  && <LanguageView />}
       {view === 'langspeed' && (
-        <LanguageSpeedView noLibResults={benchmarkResults} speedResults={speedResults} />
+        <LanguageSpeedView noLibResults={benchmarkResults} speedResults={speedResults} refValues={refValues} onRefChange={onRefChange} />
       )}
     </div>
   )
