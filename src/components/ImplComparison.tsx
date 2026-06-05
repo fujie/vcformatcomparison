@@ -6,6 +6,7 @@ import type { Lang, FmtKey, Mode } from '../data/codeSnippets'
 import { SNIPPETS, getLOCMatrix } from '../data/codeSnippets'
 import type { RefValues } from '../data/referenceValues'
 import { DEFAULT_REF } from '../data/referenceValues'
+import type { PyBenchResults } from '../lib/pyodideRunner'
 
 type SubView = 'benchmark' | 'language' | 'langspeed'
 
@@ -467,15 +468,17 @@ bench("mdoc CBOR encode+sign (with cbor2)", N,
     lambda: cbor2.dumps({"issuerAuth": cbor2.dumps(mso)}))`
 
 function LanguageSpeedView({
-  noLibResults,
-  speedResults,
-  refValues,
-  onRefChange,
+  noLibResults, speedResults, refValues, onRefChange,
+  pythonResults, pythonRunning, pythonProgress, onRunPython,
 }: {
   noLibResults: NoLibResult[] | null
   speedResults: SpeedResult[] | null
   refValues: RefValues
   onRefChange: (key: string, lang: 'Go' | 'Python', val: string) => void
+  pythonResults: PyBenchResults | null
+  pythonRunning: boolean
+  pythonProgress: string
+  onRunPython: () => void
 }) {
   type CmpMode = 'format' | 'language'
   const [cmpMode, setCmpMode] = useState<CmpMode>('format')
@@ -505,8 +508,18 @@ function LanguageSpeedView({
   }
 
   // Get Go/Python reference ops/sec
+  // Python: use actual Pyodide result if available, else fall back to reference value
+  const getPythonOps = (f: FmtKey, m: 'withLib' | 'noLib', op: 'sign' | 'verify'): { value: number; isActual: boolean } => {
+    if (f === 'JSON-LD VC' && m === 'noLib') return { value: 0, isActual: false }
+    const key = `${f}-${m}-${op}`
+    const actual = pythonResults?.[key]
+    if (actual) return { value: actual.opsPerSec, isActual: true }
+    return { value: refs[key]?.['Python'] ?? 0, isActual: false }
+  }
+
   const getRefOps = (f: FmtKey, m: 'withLib' | 'noLib', op: 'sign' | 'verify', l: 'Go' | 'Python'): number => {
     if (f === 'JSON-LD VC' && m === 'noLib') return 0
+    if (l === 'Python') return getPythonOps(f, m, op).value
     return refs[`${f}-${m}-${op}`]?.[l] ?? 0
   }
 
@@ -550,6 +563,55 @@ function LanguageSpeedView({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+      {/* Python Pyodide benchmark panel */}
+      <div style={{ ...panelStyle, borderColor: pythonResults ? '#f59e0b50' : '#334155' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 4 }}>
+              🐍 Python 実測（Pyodide / WebAssembly）
+            </div>
+            <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
+              {pythonResults
+                ? `✓ 実測完了 — ${Object.keys(pythonResults).length} 項目。チャートの Python 棒グラフは実測値に更新されています。`
+                : 'ブラウザ内で Python を実行（Pyodide ~10 MB）。Go は引き続きローカル実行が必要な参考値です。'}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            {pythonRunning && (
+              <span style={{ fontSize: 11, color: '#f59e0b' }}>{pythonProgress}</span>
+            )}
+            <button
+              onClick={onRunPython}
+              disabled={pythonRunning}
+              style={{ ...btnStyle, fontSize: 12, padding: '7px 16px', background: pythonRunning ? '#1e293b' : '#78350f', borderColor: pythonRunning ? '#334155' : '#f59e0b', color: pythonRunning ? '#475569' : '#fbbf24' }}>
+              {pythonRunning ? '実行中...' : pythonResults ? '再実行' : 'Python を実測する'}
+            </button>
+          </div>
+        </div>
+        {pythonResults && (
+          <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+            {Object.entries(pythonResults).slice(0, 8).map(([k, v]) => (
+              <span key={k} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 6, background: '#78350f30', color: '#fbbf24', border: '1px solid #f59e0b30' }}>
+                {k.replace('withLib', 'lib').replace('noLib', 'nolib')}: {v.opsPerSec.toFixed(0)} ops/sec
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Python vs Go: データソース説明 */}
+      <div style={{ display: 'flex', gap: 10, fontSize: 11, flexWrap: 'wrap' }}>
+        <span style={{ padding: '3px 10px', borderRadius: 6, background: '#f59e0b20', color: '#fbbf24', border: '1px solid #f59e0b40' }}>
+          🐍 Python — {pythonResults ? '✓ Pyodide 実測値' : '参考値（上ボタンで実測可）'}
+        </span>
+        <span style={{ padding: '3px 10px', borderRadius: 6, background: '#34d39920', color: '#34d399', border: '1px solid #34d39940' }}>
+          🐹 Go — 参考値（ローカル実行が必要）
+        </span>
+        <span style={{ padding: '3px 10px', borderRadius: 6, background: '#60a5fa20', color: '#60a5fa', border: '1px solid #60a5fa40' }}>
+          🔷 TypeScript — ブラウザ実測値
+        </span>
+      </div>
 
       {/* Compare mode toggle */}
       <div style={{ display: 'flex', gap: 0, background: '#0f172a', borderRadius: 10, padding: 4, width: 'fit-content' }}>
@@ -789,9 +851,13 @@ interface Props {
   speedResults: SpeedResult[] | null
   refValues: RefValues
   onRefChange: (key: string, lang: 'Go' | 'Python', val: string) => void
+  pythonResults: PyBenchResults | null
+  pythonRunning: boolean
+  pythonProgress: string
+  onRunPython: () => void
 }
 
-export function ImplComparison({ benchmarkResults, serialResults, benchmarkRunning, benchmarkProgress, onRunBenchmark, speedResults, refValues, onRefChange }: Props) {
+export function ImplComparison({ benchmarkResults, serialResults, benchmarkRunning, benchmarkProgress, onRunBenchmark, speedResults, refValues, onRefChange, pythonResults, pythonRunning, pythonProgress, onRunPython }: Props) {
   const [view, setView] = useState<SubView>('language')
 
   return (
@@ -824,7 +890,10 @@ export function ImplComparison({ benchmarkResults, serialResults, benchmarkRunni
       )}
       {view === 'language'  && <LanguageView />}
       {view === 'langspeed' && (
-        <LanguageSpeedView noLibResults={benchmarkResults} speedResults={speedResults} refValues={refValues} onRefChange={onRefChange} />
+        <LanguageSpeedView noLibResults={benchmarkResults} speedResults={speedResults}
+          refValues={refValues} onRefChange={onRefChange}
+          pythonResults={pythonResults} pythonRunning={pythonRunning}
+          pythonProgress={pythonProgress} onRunPython={onRunPython} />
       )}
     </div>
   )

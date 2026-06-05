@@ -5,6 +5,7 @@ import type { SecurityTest } from './benchmarks/normalizationSecurity'
 import type { NoLibResult, SerialBenchResult } from './benchmarks/noLibrary'
 import { DEFAULT_REF } from './data/referenceValues'
 import type { RefValues } from './data/referenceValues'
+import type { PyBenchResults } from './lib/pyodideRunner'
 import { SpeedResults } from './components/SpeedResults'
 import { ComplexityResults } from './components/ComplexityResults'
 import { SecurityResults } from './components/SecurityResults'
@@ -37,11 +38,28 @@ export default function App() {
   const [noLibRunning, setNoLibRunning] = useState(false)
   const [noLibProgress, setNoLibProgress] = useState('')
   const [refValues, setRefValues] = useState<RefValues>(DEFAULT_REF)
+  const [pythonResults, setPythonResults] = useState<PyBenchResults | null>(null)
+  const [pythonRunning, setPythonRunning] = useState(false)
+  const [pythonProgress, setPythonProgress] = useState('')
 
   const handleRefChange = useCallback((key: string, lang: 'Go' | 'Python', val: string) => {
     const n = parseFloat(val)
     if (!isNaN(n) && n >= 0) {
       setRefValues(prev => ({ ...prev, [key]: { ...prev[key], [lang]: n } }))
+    }
+  }, [])
+
+  const runPythonBench = useCallback(async () => {
+    setPythonRunning(true)
+    setPythonProgress('準備中...')
+    try {
+      const { runPythonBenchmark } = await import('./lib/pyodideRunner')
+      const results = await runPythonBenchmark(setPythonProgress)
+      setPythonResults(results)
+    } catch (e) {
+      setPythonProgress(`エラー: ${(e as Error).message}`)
+    } finally {
+      setPythonRunning(false)
     }
   }, [])
 
@@ -180,6 +198,10 @@ export default function App() {
             speedResults={speedResults}
             refValues={refValues}
             onRefChange={handleRefChange}
+            pythonResults={pythonResults}
+            pythonRunning={pythonRunning}
+            pythonProgress={pythonProgress}
+            onRunPython={runPythonBench}
           />
         )}
 
@@ -193,6 +215,7 @@ export default function App() {
             serialResults={serialResults}
             iterations={iterations}
             refValues={refValues}
+            pythonResults={pythonResults}
           />
         )}
 

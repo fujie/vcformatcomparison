@@ -4,6 +4,7 @@ import type { ComplexityMetric } from '../benchmarks/deserializationComplexity'
 import type { SecurityTest } from '../benchmarks/normalizationSecurity'
 import type { NoLibResult, SerialBenchResult } from '../benchmarks/noLibrary'
 import type { RefValues } from '../data/referenceValues'
+import type { PyBenchResults } from '../lib/pyodideRunner'
 
 interface Props {
   speedResults:      SpeedResult[]      | null
@@ -13,6 +14,7 @@ interface Props {
   serialResults:     SerialBenchResult[]| null
   iterations:        number
   refValues:         RefValues
+  pythonResults:     PyBenchResults     | null
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -116,8 +118,13 @@ function buildCsv(props: Props, timestamp: string): string {
         const ref = props.refValues[`${f}-${m}-${op}`]
         if (ref) {
           const mLabel = m === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'
-          row(f, 'Go',     mLabel, op, '参考', '—', ref.Go,     '参考値(Apple M2 Pro)')
-          row(f, 'Python', mLabel, op, '参考', '—', ref.Python, '参考値(Apple M2 Pro)')
+          row(f, 'Go', mLabel, op, '参考', '—', ref.Go, '参考値(Apple M2 Pro)')
+          const pyActual = props.pythonResults?.[`${f}-${m}-${op}`]
+          if (pyActual) {
+            row(f, 'Python', mLabel, op, pyActual.iterations, fmt(pyActual.avgMs, 3), pyActual.opsPerSec.toFixed(1), '✓ Pyodide 実測値')
+          } else {
+            row(f, 'Python', mLabel, op, '参考', '—', ref.Python, '参考値(Apple M2 Pro)')
+          }
         }
       }
     }
@@ -204,8 +211,12 @@ function buildMarkdown(props: Props, timestamp: string): string {
           const ref = props.refValues[`${f}-${m}-${op}`]
           if (!ref) continue
           const ml = m === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'
-          lines.push(tableRow(f, 'Go',     ml, op, '—', ref.Go,     '参考値'))
-          lines.push(tableRow(f, 'Python', ml, op, '—', ref.Python, '参考値'))
+          lines.push(tableRow(f, 'Go', ml, op, '—', ref.Go, '参考値'))
+          const pyAct = props.pythonResults?.[`${f}-${m}-${op}`]
+          lines.push(pyAct
+            ? tableRow(f, 'Python', ml, op, fmt(pyAct.avgMs, 3), pyAct.opsPerSec.toFixed(1), '✓ Pyodide 実測値')
+            : tableRow(f, 'Python', ml, op, '—', ref.Python, '参考値')
+          )
         }
       }
     }
@@ -440,19 +451,33 @@ export function ReportView(props: Props) {
                   '実測値',
                 ])
               }
-              // Go / Python reference rows
+              // Go / Python rows
               const refKey = `${f}-${m}-${op}`
               for (const lang of langs) {
-                const opsVal = props.refValues[refKey]?.[lang] ?? 0
+                let opsVal: number
+                let note: string
+                if (lang === 'Python') {
+                  const actual = props.pythonResults?.[refKey]
+                  if (actual) {
+                    opsVal = actual.opsPerSec
+                    note = `✓ Pyodide 実測値 (${actual.iterations} 回)`
+                  } else {
+                    opsVal = props.refValues[refKey]?.['Python'] ?? 0
+                    note = '参考値（Apple M2 Pro）'
+                  }
+                } else {
+                  opsVal = props.refValues[refKey]?.['Go'] ?? 0
+                  note = '参考値（Apple M2 Pro）'
+                }
                 rows.push([
                   f,
                   lang,
                   m === 'withLib' ? 'ライブラリあり' : 'ライブラリなし',
                   op,
-                  '参考',
-                  '—',
+                  lang === 'Python' && props.pythonResults?.[refKey] ? props.pythonResults[refKey].iterations : '参考',
+                  lang === 'Python' && props.pythonResults?.[refKey] ? fmt(props.pythonResults[refKey].avgMs, 3) : '—',
                   opsVal > 0 ? opsVal.toLocaleString() : '—',
-                  '参考値（Apple M2 Pro）',
+                  note,
                 ])
               }
             }
