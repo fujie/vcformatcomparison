@@ -54,10 +54,16 @@ export default function App() {
     setPythonProgress('準備中...')
     try {
       const { runPythonBenchmark } = await import('./lib/pyodideRunner')
-      const results = await runPythonBenchmark(setPythonProgress)
+      const results = await runPythonBenchmark((msg) => {
+        setPythonProgress(msg)
+        console.log('[Python]', msg)
+      })
       setPythonResults(results)
+      setPythonProgress(`完了 — ${Object.keys(results).length} 項目計測`)
     } catch (e) {
-      setPythonProgress(`エラー: ${(e as Error).message}`)
+      const msg = (e as Error).message
+      console.error('[Python benchmark error]', e)
+      setPythonProgress(`エラー: ${msg}`)
     } finally {
       setPythonRunning(false)
     }

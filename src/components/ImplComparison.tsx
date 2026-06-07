@@ -578,8 +578,10 @@ function LanguageSpeedView({
             </div>
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            {pythonRunning && (
-              <span style={{ fontSize: 11, color: '#f59e0b' }}>{pythonProgress}</span>
+            {pythonProgress && (
+              <span style={{ fontSize: 11, color: pythonProgress.startsWith('エラー') ? '#f87171' : pythonRunning ? '#f59e0b' : '#86efac' }}>
+                {pythonProgress}
+              </span>
             )}
             <button
               onClick={onRunPython}

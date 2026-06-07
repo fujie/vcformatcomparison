@@ -191,14 +191,27 @@ export async function runPythonBenchmark(
   onProgress('Pyodide をロード中（初回のみ約10 MB）...')
   const py = await getPyodide()
 
-  onProgress('cryptography パッケージをロード中...')
-  await py.loadPackage(['cryptography'])
+  // Load bundled packages first (reliable, offline)
+  onProgress('cryptography をロード中...')
+  await py.loadPackage(['cryptography', 'micropip'])
 
-  onProgress('PyJWT / pyld / cbor2 をインストール中...')
-  await py.runPythonAsync(`
+  // Install optional pure-Python packages individually so one failure doesn't block others
+  const optionalPkgs = ['PyJWT', 'pyld', 'cbor2']
+  for (const pkg of optionalPkgs) {
+    onProgress(`${pkg} をインストール中...`)
+    try {
+      // micropip.install is directly awaitable via runPythonAsync
+      await py.runPythonAsync(`
 import micropip
-await micropip.install(['PyJWT', 'pyld', 'cbor2'])
+try:
+    await micropip.install('${pkg}')
+except Exception as e:
+    pass  # continue without this package
 `)
+    } catch {
+      console.warn(`[Pyodide] ${pkg} install failed, continuing without it`)
+    }
+  }
 
   onProgress('Python ベンチマーク実行中...')
   const raw = await py.runPythonAsync(PY_BENCH_CODE)
@@ -211,6 +224,6 @@ await micropip.install(['PyJWT', 'pyld', 'cbor2'])
     console.warn('[Python benchmark] partial errors:', parsed.errors)
   }
 
-  onProgress('完了')
+  onProgress(`完了 — ${Object.keys(parsed.results).length} 項目計測`)
   return parsed.results
 }
