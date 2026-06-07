@@ -5,6 +5,7 @@ import type { SecurityTest } from '../benchmarks/normalizationSecurity'
 import type { NoLibResult, SerialBenchResult } from '../benchmarks/noLibrary'
 import type { RefValues } from '../data/referenceValues'
 import type { PyBenchResults } from '../lib/pyodideRunner'
+import type { GoBenchResults } from '../lib/goRunner'
 
 interface Props {
   speedResults:      SpeedResult[]      | null
@@ -15,6 +16,7 @@ interface Props {
   iterations:        number
   refValues:         RefValues
   pythonResults:     PyBenchResults     | null
+  goResults:         GoBenchResults     | null
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -118,7 +120,12 @@ function buildCsv(props: Props, timestamp: string): string {
         const ref = props.refValues[`${f}-${m}-${op}`]
         if (ref) {
           const mLabel = m === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'
-          row(f, 'Go', mLabel, op, '参考', '—', ref.Go, '参考値(Apple M2 Pro)')
+          const goActual = props.goResults?.[`${f}-${m}-${op}`]
+          if (goActual) {
+            row(f, 'Go', mLabel, op, goActual.iterations, fmt(goActual.avgMs, 3), goActual.opsPerSec.toFixed(1), '✓ Go WASM 実測値')
+          } else {
+            row(f, 'Go', mLabel, op, '参考', '—', ref.Go, '参考値(Apple M2 Pro)')
+          }
           const pyActual = props.pythonResults?.[`${f}-${m}-${op}`]
           if (pyActual) {
             row(f, 'Python', mLabel, op, pyActual.iterations, fmt(pyActual.avgMs, 3), pyActual.opsPerSec.toFixed(1), '✓ Pyodide 実測値')
@@ -211,10 +218,14 @@ function buildMarkdown(props: Props, timestamp: string): string {
           const ref = props.refValues[`${f}-${m}-${op}`]
           if (!ref) continue
           const ml = m === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'
-          lines.push(tableRow(f, 'Go', ml, op, '—', ref.Go, '参考値'))
-          const pyAct = props.pythonResults?.[`${f}-${m}-${op}`]
-          lines.push(pyAct
-            ? tableRow(f, 'Python', ml, op, fmt(pyAct.avgMs, 3), pyAct.opsPerSec.toFixed(1), '✓ Pyodide 実測値')
+          const mdGoAct = props.goResults?.[`${f}-${m}-${op}`]
+          lines.push(mdGoAct
+            ? tableRow(f, 'Go',     ml, op, fmt(mdGoAct.avgMs, 3),  mdGoAct.opsPerSec.toFixed(1), '✓ Go WASM 実測値')
+            : tableRow(f, 'Go',     ml, op, '—', ref.Go,   '参考値')
+          )
+          const mdPyAct = props.pythonResults?.[`${f}-${m}-${op}`]
+          lines.push(mdPyAct
+            ? tableRow(f, 'Python', ml, op, fmt(mdPyAct.avgMs, 3), mdPyAct.opsPerSec.toFixed(1), '✓ Pyodide 実測値')
             : tableRow(f, 'Python', ml, op, '—', ref.Python, '参考値')
           )
         }
@@ -466,8 +477,14 @@ export function ReportView(props: Props) {
                     note = '参考値（Apple M2 Pro）'
                   }
                 } else {
-                  opsVal = props.refValues[refKey]?.['Go'] ?? 0
-                  note = '参考値（Apple M2 Pro）'
+                  const actual = props.goResults?.[refKey]
+                  if (actual) {
+                    opsVal = actual.opsPerSec
+                    note = `✓ Go WASM 実測値 (${actual.iterations} 回)`
+                  } else {
+                    opsVal = props.refValues[refKey]?.['Go'] ?? 0
+                    note = '参考値（Apple M2 Pro）'
+                  }
                 }
                 rows.push([
                   f,

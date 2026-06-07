@@ -6,6 +6,7 @@ import type { NoLibResult, SerialBenchResult } from './benchmarks/noLibrary'
 import { DEFAULT_REF } from './data/referenceValues'
 import type { RefValues } from './data/referenceValues'
 import type { PyBenchResults } from './lib/pyodideRunner'
+import type { GoBenchResults } from './lib/goRunner'
 import { SpeedResults } from './components/SpeedResults'
 import { ComplexityResults } from './components/ComplexityResults'
 import { SecurityResults } from './components/SecurityResults'
@@ -41,6 +42,9 @@ export default function App() {
   const [pythonResults, setPythonResults] = useState<PyBenchResults | null>(null)
   const [pythonRunning, setPythonRunning] = useState(false)
   const [pythonProgress, setPythonProgress] = useState('')
+  const [goResults, setGoResults] = useState<GoBenchResults | null>(null)
+  const [goRunning, setGoRunning] = useState(false)
+  const [goProgress, setGoProgress] = useState('')
 
   const handleRefChange = useCallback((key: string, lang: 'Go' | 'Python', val: string) => {
     const n = parseFloat(val)
@@ -66,6 +70,26 @@ export default function App() {
       setPythonProgress(`エラー: ${msg}`)
     } finally {
       setPythonRunning(false)
+    }
+  }, [])
+
+  const runGoBench = useCallback(async () => {
+    setGoRunning(true)
+    setGoProgress('準備中...')
+    try {
+      const { runGoBenchmark } = await import('./lib/goRunner')
+      const results = await runGoBenchmark((msg) => {
+        setGoProgress(msg)
+        console.log('[Go]', msg)
+      })
+      setGoResults(results)
+      setGoProgress(`完了 — ${Object.keys(results).length} 項目計測`)
+    } catch (e) {
+      const msg = (e as Error).message
+      console.error('[Go benchmark error]', e)
+      setGoProgress(`エラー: ${msg}`)
+    } finally {
+      setGoRunning(false)
     }
   }, [])
 
@@ -208,6 +232,10 @@ export default function App() {
             pythonRunning={pythonRunning}
             pythonProgress={pythonProgress}
             onRunPython={runPythonBench}
+            goResults={goResults}
+            goRunning={goRunning}
+            goProgress={goProgress}
+            onRunGo={runGoBench}
           />
         )}
 
@@ -222,6 +250,7 @@ export default function App() {
             iterations={iterations}
             refValues={refValues}
             pythonResults={pythonResults}
+            goResults={goResults}
           />
         )}
 

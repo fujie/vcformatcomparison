@@ -7,6 +7,7 @@ import { SNIPPETS, getLOCMatrix } from '../data/codeSnippets'
 import type { RefValues } from '../data/referenceValues'
 import { DEFAULT_REF } from '../data/referenceValues'
 import type { PyBenchResults } from '../lib/pyodideRunner'
+import type { GoBenchResults } from '../lib/goRunner'
 
 type SubView = 'benchmark' | 'language' | 'langspeed'
 
@@ -470,6 +471,7 @@ bench("mdoc CBOR encode+sign (with cbor2)", N,
 function LanguageSpeedView({
   noLibResults, speedResults, refValues, onRefChange,
   pythonResults, pythonRunning, pythonProgress, onRunPython,
+  goResults, goRunning, goProgress, onRunGo,
 }: {
   noLibResults: NoLibResult[] | null
   speedResults: SpeedResult[] | null
@@ -479,6 +481,10 @@ function LanguageSpeedView({
   pythonRunning: boolean
   pythonProgress: string
   onRunPython: () => void
+  goResults: GoBenchResults | null
+  goRunning: boolean
+  goProgress: string
+  onRunGo: () => void
 }) {
   type CmpMode = 'format' | 'language'
   const [cmpMode, setCmpMode] = useState<CmpMode>('format')
@@ -517,9 +523,19 @@ function LanguageSpeedView({
     return { value: refs[key]?.['Python'] ?? 0, isActual: false }
   }
 
+  // Go: use actual WASM result if available, else fall back to reference value
+  const getGoOps = (f: FmtKey, m: 'withLib' | 'noLib', op: 'sign' | 'verify'): { value: number; isActual: boolean } => {
+    if (f === 'JSON-LD VC' && m === 'noLib') return { value: 0, isActual: false }
+    const key = `${f}-${m}-${op}`
+    const actual = goResults?.[key]
+    if (actual) return { value: actual.opsPerSec, isActual: true }
+    return { value: refs[key]?.['Go'] ?? 0, isActual: false }
+  }
+
   const getRefOps = (f: FmtKey, m: 'withLib' | 'noLib', op: 'sign' | 'verify', l: 'Go' | 'Python'): number => {
     if (f === 'JSON-LD VC' && m === 'noLib') return 0
     if (l === 'Python') return getPythonOps(f, m, op).value
+    if (l === 'Go')     return getGoOps(f, m, op).value
     return refs[`${f}-${m}-${op}`]?.[l] ?? 0
   }
 
@@ -564,51 +580,81 @@ function LanguageSpeedView({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-      {/* Python Pyodide benchmark panel */}
-      <div style={{ ...panelStyle, borderColor: pythonResults ? '#f59e0b50' : '#334155' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 4 }}>
-              🐍 Python 実測（Pyodide / WebAssembly）
-            </div>
-            <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
-              {pythonResults
-                ? `✓ 実測完了 — ${Object.keys(pythonResults).length} 項目。チャートの Python 棒グラフは実測値に更新されています。`
-                : 'ブラウザ内で Python を実行（Pyodide ~10 MB）。Go は引き続きローカル実行が必要な参考値です。'}
-            </div>
+      {/* Language benchmark panels */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+
+        {/* Go WASM panel */}
+        <div style={{ ...panelStyle, borderColor: goResults ? '#34d39950' : '#334155' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 4 }}>
+            🐹 Go 実測（WebAssembly / ECDSA P-256）
           </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.5, marginBottom: 8 }}>
+            {goResults
+              ? `✓ 実測完了 — ${Object.keys(goResults).length} 項目`
+              : 'go-bench.wasm (4.6 MB) をブラウザ内で実行。標準ライブラリ crypto/ecdsa を計測。'}
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            {goProgress && (
+              <span style={{ fontSize: 11, color: goProgress.startsWith('エラー') ? '#f87171' : goRunning ? '#34d399' : '#86efac', flex: 1 }}>
+                {goProgress}
+              </span>
+            )}
+            <button onClick={onRunGo} disabled={goRunning}
+              style={{ ...btnStyle, fontSize: 11, padding: '6px 14px', background: goRunning ? '#1e293b' : '#14532d', borderColor: goRunning ? '#334155' : '#22c55e', color: goRunning ? '#475569' : '#86efac' }}>
+              {goRunning ? '実行中...' : goResults ? '再実行' : 'Go を実測する'}
+            </button>
+          </div>
+          {goResults && (
+            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+              {Object.entries(goResults).slice(0, 6).map(([k, v]) => (
+                <span key={k} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: '#14532d30', color: '#86efac', border: '1px solid #22c55e30' }}>
+                  {k.replace('withLib','lib').replace('noLib','nolib')}: {v.opsPerSec.toFixed(0)}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Python Pyodide panel */}
+        <div style={{ ...panelStyle, borderColor: pythonResults ? '#f59e0b50' : '#334155' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 4 }}>
+            🐍 Python 実測（Pyodide / WebAssembly）
+          </div>
+          <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.5, marginBottom: 8 }}>
+            {pythonResults
+              ? `✓ 実測完了 — ${Object.keys(pythonResults).length} 項目`
+              : 'Pyodide (~10 MB) でブラウザ内 Python 実行。cryptography / PyJWT / pyld を計測。'}
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             {pythonProgress && (
-              <span style={{ fontSize: 11, color: pythonProgress.startsWith('エラー') ? '#f87171' : pythonRunning ? '#f59e0b' : '#86efac' }}>
+              <span style={{ fontSize: 11, color: pythonProgress.startsWith('エラー') ? '#f87171' : pythonRunning ? '#f59e0b' : '#86efac', flex: 1 }}>
                 {pythonProgress}
               </span>
             )}
-            <button
-              onClick={onRunPython}
-              disabled={pythonRunning}
-              style={{ ...btnStyle, fontSize: 12, padding: '7px 16px', background: pythonRunning ? '#1e293b' : '#78350f', borderColor: pythonRunning ? '#334155' : '#f59e0b', color: pythonRunning ? '#475569' : '#fbbf24' }}>
+            <button onClick={onRunPython} disabled={pythonRunning}
+              style={{ ...btnStyle, fontSize: 11, padding: '6px 14px', background: pythonRunning ? '#1e293b' : '#78350f', borderColor: pythonRunning ? '#334155' : '#f59e0b', color: pythonRunning ? '#475569' : '#fbbf24' }}>
               {pythonRunning ? '実行中...' : pythonResults ? '再実行' : 'Python を実測する'}
             </button>
           </div>
+          {pythonResults && (
+            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+              {Object.entries(pythonResults).slice(0, 6).map(([k, v]) => (
+                <span key={k} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: '#78350f30', color: '#fbbf24', border: '1px solid #f59e0b30' }}>
+                  {k.replace('withLib','lib').replace('noLib','nolib')}: {v.opsPerSec.toFixed(0)}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
-        {pythonResults && (
-          <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-            {Object.entries(pythonResults).slice(0, 8).map(([k, v]) => (
-              <span key={k} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 6, background: '#78350f30', color: '#fbbf24', border: '1px solid #f59e0b30' }}>
-                {k.replace('withLib', 'lib').replace('noLib', 'nolib')}: {v.opsPerSec.toFixed(0)} ops/sec
-              </span>
-            ))}
-          </div>
-        )}
       </div>
 
-      {/* Python vs Go: データソース説明 */}
-      <div style={{ display: 'flex', gap: 10, fontSize: 11, flexWrap: 'wrap' }}>
+      {/* Data source legend */}
+      <div style={{ display: 'flex', gap: 8, fontSize: 11, flexWrap: 'wrap' }}>
+        <span style={{ padding: '3px 10px', borderRadius: 6, background: '#34d39920', color: '#34d399', border: '1px solid #34d39940' }}>
+          🐹 Go — {goResults ? '✓ WASM 実測値' : '参考値（上ボタンで実測可）'}
+        </span>
         <span style={{ padding: '3px 10px', borderRadius: 6, background: '#f59e0b20', color: '#fbbf24', border: '1px solid #f59e0b40' }}>
           🐍 Python — {pythonResults ? '✓ Pyodide 実測値' : '参考値（上ボタンで実測可）'}
-        </span>
-        <span style={{ padding: '3px 10px', borderRadius: 6, background: '#34d39920', color: '#34d399', border: '1px solid #34d39940' }}>
-          🐹 Go — 参考値（ローカル実行が必要）
         </span>
         <span style={{ padding: '3px 10px', borderRadius: 6, background: '#60a5fa20', color: '#60a5fa', border: '1px solid #60a5fa40' }}>
           🔷 TypeScript — ブラウザ実測値
@@ -857,9 +903,13 @@ interface Props {
   pythonRunning: boolean
   pythonProgress: string
   onRunPython: () => void
+  goResults: GoBenchResults | null
+  goRunning: boolean
+  goProgress: string
+  onRunGo: () => void
 }
 
-export function ImplComparison({ benchmarkResults, serialResults, benchmarkRunning, benchmarkProgress, onRunBenchmark, speedResults, refValues, onRefChange, pythonResults, pythonRunning, pythonProgress, onRunPython }: Props) {
+export function ImplComparison({ benchmarkResults, serialResults, benchmarkRunning, benchmarkProgress, onRunBenchmark, speedResults, refValues, onRefChange, pythonResults, pythonRunning, pythonProgress, onRunPython, goResults, goRunning, goProgress, onRunGo }: Props) {
   const [view, setView] = useState<SubView>('language')
 
   return (
@@ -895,7 +945,9 @@ export function ImplComparison({ benchmarkResults, serialResults, benchmarkRunni
         <LanguageSpeedView noLibResults={benchmarkResults} speedResults={speedResults}
           refValues={refValues} onRefChange={onRefChange}
           pythonResults={pythonResults} pythonRunning={pythonRunning}
-          pythonProgress={pythonProgress} onRunPython={onRunPython} />
+          pythonProgress={pythonProgress} onRunPython={onRunPython}
+          goResults={goResults} goRunning={goRunning}
+          goProgress={goProgress} onRunGo={onRunGo} />
       )}
     </div>
   )
