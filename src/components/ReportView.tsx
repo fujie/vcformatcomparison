@@ -6,6 +6,7 @@ import type { NoLibResult, SerialBenchResult } from '../benchmarks/noLibrary'
 import type { RefValues } from '../data/referenceValues'
 import type { PyBenchResults } from '../lib/pyodideRunner'
 import type { GoBenchResults } from '../lib/goRunner'
+import { GO_BENCH_SOURCE, PYTHON_BENCH_SOURCE, TS_SPEED_SOURCE, TS_NOLIB_SOURCE, TS_SECURITY_SOURCE } from '../data/benchmarkSources'
 
 interface Props {
   speedResults:      SpeedResult[]      | null
@@ -19,12 +20,61 @@ interface Props {
   goResults:         GoBenchResults     | null
 }
 
-// ── Helpers ──────────────────────────────────────────────────
+// ── Environment detection ─────────────────────────────────────
+
+interface EnvInfo {
+  browserName: string
+  browserVersion: string
+  os: string
+  cpuCores: number
+  deviceMemoryGB: string
+  userAgent: string
+  screenResolution: string
+  timestamp: string
+}
+
+function detectEnv(): EnvInfo {
+  const ua = navigator.userAgent
+
+  // Browser name + version
+  const chromeM  = ua.match(/Chrome\/([\d.]+)/)
+  const ffM      = ua.match(/Firefox\/([\d.]+)/)
+  const safariM  = ua.match(/Version\/([\d.]+).*Safari/)
+  const edgeM    = ua.match(/Edg\/([\d.]+)/)
+  let browserName = 'Unknown', browserVersion = ''
+  if (edgeM)    { browserName = 'Edge';    browserVersion = edgeM[1] }
+  else if (chromeM) { browserName = 'Chrome';  browserVersion = chromeM[1] }
+  else if (ffM)     { browserName = 'Firefox'; browserVersion = ffM[1] }
+  else if (safariM) { browserName = 'Safari';  browserVersion = safariM[1] }
+
+  // OS
+  let os = 'Unknown'
+  if (/Mac OS X/.test(ua)) {
+    const v = ua.match(/Mac OS X ([\d_]+)/)?.[1]?.replace(/_/g, '.') ?? ''
+    os = `macOS ${v}`
+  } else if (/Windows NT/.test(ua)) {
+    const v = ua.match(/Windows NT ([\d.]+)/)?.[1] ?? ''
+    os = `Windows NT ${v}`
+  } else if (/Linux/.test(ua)) { os = 'Linux' }
+  else if (/Android/.test(ua)) { os = 'Android' }
+  else if (/iPhone|iPad/.test(ua)) { os = 'iOS' }
+
+  const mem = (navigator as unknown as Record<string, unknown>)['deviceMemory']
+  return {
+    browserName,
+    browserVersion,
+    os,
+    cpuCores: navigator.hardwareConcurrency ?? 0,
+    deviceMemoryGB: mem ? `${mem} GB` : '不明',
+    userAgent: ua,
+    screenResolution: `${window.screen.width}×${window.screen.height} (devicePixelRatio: ${window.devicePixelRatio})`,
+    timestamp: new Date().toLocaleString('ja-JP'),
+  }
+}
 
 function getBrowserInfo(): string {
-  const ua = navigator.userAgent
-  const m = ua.match(/(Chrome|Firefox|Safari|Edge|Opera)\/[\d.]+/)
-  return m ? `${m[0]} — ${navigator.platform}` : ua.slice(0, 60)
+  const e = detectEnv()
+  return `${e.browserName} ${e.browserVersion} — ${e.os}`
 }
 
 function fmt(v: number | undefined, digits = 2): string {
@@ -251,6 +301,80 @@ function buildMarkdown(props: Props, timestamp: string): string {
 
 // ── Sub-section table components ─────────────────────────────
 
+// ── Execution Code Section ────────────────────────────────────
+
+function CodeBlock({ label, lang, code, color = '#60a5fa' }: {
+  label: string; lang: string; code: string; color?: string
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div style={{ border: `1px solid ${color}30`, borderRadius: 10, overflow: 'hidden' }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '10px 16px', background: '#0f172a', border: 'none', cursor: 'pointer',
+          color: '#e2e8f0', fontSize: 13, fontWeight: 500 }}>
+        <span>
+          <span style={{ color, marginRight: 8 }}>{lang}</span>
+          {label}
+        </span>
+        <span style={{ color: '#64748b', fontSize: 10 }}>{open ? '▲ 閉じる' : '▼ コードを表示'}</span>
+      </button>
+      {open && (
+        <pre style={{ margin: 0, padding: '14px 16px', background: '#020817',
+          fontSize: 10, color: '#a5f3fc', overflowX: 'auto',
+          lineHeight: 1.6, fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+          {code}
+        </pre>
+      )}
+    </div>
+  )
+}
+
+function CodeSourceSection({ goResults, pythonResults }: {
+  goResults: GoBenchResults | null; pythonResults: PyBenchResults | null
+}) {
+  return (
+    <div style={{ ...panelStyle, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <h3 style={{ ...sectionTitle, color: '#a78bfa' }}>📄 実際の実行コード</h3>
+      <p style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>
+        各ベンチマークで実際に実行されたコードを示します。クリックで展開できます。
+      </p>
+
+      <CodeBlock
+        lang="TypeScript"
+        label="署名検証速度ベンチマーク（jose / jsonld / cbor-x）"
+        color="#60a5fa"
+        code={TS_SPEED_SOURCE}
+      />
+      <CodeBlock
+        lang="TypeScript"
+        label="ライブラリなし実装（Web Crypto API のみ + 手書き CBOR）"
+        color="#f472b6"
+        code={TS_NOLIB_SOURCE}
+      />
+      <CodeBlock
+        lang="TypeScript"
+        label="セキュリティテスト（DoS / Injection / SSRF / Algorithm Confusion）"
+        color="#f87171"
+        code={TS_SECURITY_SOURCE}
+      />
+      <CodeBlock
+        lang={goResults ? 'Go ✓ WASM 実測済み' : 'Go（参考値）'}
+        label="go/bench/main.go — GOOS=js GOARCH=wasm（crypto/ecdsa 標準ライブラリ）"
+        color="#34d399"
+        code={GO_BENCH_SOURCE}
+      />
+      <CodeBlock
+        lang={pythonResults ? 'Python ✓ Pyodide 実測済み' : 'Python（参考値）'}
+        label="Pyodide 実行コード（cryptography / PyJWT / pyld / cbor2）"
+        color="#f59e0b"
+        code={PYTHON_BENCH_SOURCE}
+      />
+    </div>
+  )
+}
+
 function SectionTable({ title, headers, rows, color = '#60a5fa' }: {
   title: string; headers: string[]; rows: (string | number)[][]; color?: string
 }) {
@@ -375,21 +499,39 @@ export function ReportView(props: Props) {
         </div>
       </div>
 
-      {/* テスト条件 */}
-      <SectionTable
-        title="🖥 テスト実行環境"
-        color="#a78bfa"
-        headers={['項目', '値']}
-        rows={[
-          ['ブラウザ / OS', getBrowserInfo()],
-          ['イテレーション数', props.iterations],
-          ['実行日時', timestamp],
-          ['使用ライブラリ', 'jose@6.x / @noble/ed25519@2.x / jsonld@8.x / cbor-x@1.x / recharts@2.x'],
-          ['規格', 'IETF RFC 9901 (SD-JWT VC) / W3C VCDM 2.0 (JSON-LD VC) / ISO 18013-5 (mdoc)'],
-          ['署名アルゴリズム', 'SD-JWT VC: EdDSA Ed25519 / JSON-LD VC: Ed25519+SHA-256 / mdoc: ECDSA P-256'],
-          ['正規化', 'JSON-LD VC: URDNA2015 (RDF Dataset Normalization) / その他: なし'],
-        ]}
-      />
+      {/* テスト実行環境（詳細） */}
+      {(() => {
+        const env = detectEnv()
+        return (
+          <SectionTable
+            title="🖥 テスト実行環境"
+            color="#a78bfa"
+            headers={['項目', '値']}
+            rows={[
+              ['実行日時', env.timestamp],
+              ['ブラウザ', `${env.browserName} ${env.browserVersion}`],
+              ['OS', env.os],
+              ['CPU コア数', `${env.cpuCores} コア (navigator.hardwareConcurrency)`],
+              ['デバイスメモリ', env.deviceMemoryGB],
+              ['画面解像度', env.screenResolution],
+              ['User-Agent', env.userAgent.slice(0, 120) + (env.userAgent.length > 120 ? '…' : '')],
+              ['TypeScript ランタイム', 'Vite 5.4.x / React 18.x / Web Crypto API'],
+              ['Go ランタイム', `Go 1.25.6 WASM (GOOS=js GOARCH=wasm) / wasm_exec.js`],
+              ['Python ランタイム', 'Pyodide 0.26.4 (CPython 3.12 via WebAssembly)'],
+              ['イテレーション数 (main)', props.iterations],
+              ['イテレーション数 (Go/Python)', 100],
+              ['使用ライブラリ (TypeScript)', 'jose@6.x / @noble/ed25519@2.x / jsonld@8.x / cbor-x@1.x'],
+              ['使用ライブラリ (Python)', 'cryptography (bundled) / PyJWT / pyld / cbor2 (micropip)'],
+              ['使用ライブラリ (Go)', '標準ライブラリのみ: crypto/ecdsa, crypto/sha256, encoding/base64'],
+              ['規格', 'IETF RFC 9901 / W3C VCDM 2.0 / ISO 18013-5'],
+              ['署名アルゴリズム', 'SD-JWT VC: EdDSA Ed25519 / JSON-LD VC: Ed25519+SHA-256 / mdoc: ECDSA P-256'],
+              ['正規化', 'JSON-LD VC: URDNA2015 (RDF Dataset Normalization, jsonld@8.x) / その他: なし'],
+              ['Go 実測', props.goResults     ? `✓ WASM 実測済み (${Object.keys(props.goResults).length} 項目)` : '参考値（未実測）'],
+              ['Python 実測', props.pythonResults ? `✓ Pyodide 実測済み (${Object.keys(props.pythonResults).length} 項目)` : '参考値（未実測）'],
+            ]}
+          />
+        )
+      })()}
 
       {/* 署名速度 */}
       {props.speedResults ? (
@@ -523,6 +665,12 @@ export function ReportView(props: Props) {
           ])}
         />
       ) : <NotRun label="シリアライズ速度" />}
+
+      {/* 実行コード */}
+      <CodeSourceSection
+        goResults={props.goResults}
+        pythonResults={props.pythonResults}
+      />
 
     </div>
   )
