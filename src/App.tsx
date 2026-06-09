@@ -12,8 +12,9 @@ import { ComplexityResults } from './components/ComplexityResults'
 import { SecurityResults } from './components/SecurityResults'
 import { ImplComparison } from './components/ImplComparison'
 import { ReportView } from './components/ReportView'
+import ServerBenchmark from './components/ServerBenchmark'
 
-type Tab = 'speed' | 'complexity' | 'security' | 'impl' | 'report'
+type Tab = 'speed' | 'complexity' | 'security' | 'impl' | 'server' | 'report'
 type Status = 'idle' | 'running' | 'done' | 'error'
 
 const TABS: { id: Tab; label: string; icon: string; desc: string }[] = [
@@ -21,6 +22,7 @@ const TABS: { id: Tab; label: string; icon: string; desc: string }[] = [
   { id: 'complexity', icon: '📐', label: 'デシリアライズ複雑性', desc: 'LOC・非同期ステップ・循環的複雑度' },
   { id: 'security',   icon: '🔐', label: '正規化セキュリティ',   desc: 'DoS・SSRF・インジェクション定量評価' },
   { id: 'impl',       icon: '🔤', label: '実装比較',             desc: 'Go・Python・TS / ライブラリなし実装' },
+  { id: 'server',     icon: '🖥', label: 'バックエンド計測',     desc: 'Node.js/Python/Go ネイティブ精密計測' },
   { id: 'report',     icon: '📋', label: '結果レポート',         desc: '一覧表示・JSON/CSV/Markdown エクスポート' },
 ]
 
@@ -238,6 +240,9 @@ export default function App() {
             onRunGo={runGoBench}
           />
         )}
+
+        {/* バックエンド精密計測タブ */}
+        {tab === 'server' && <ServerBenchmark />}
 
         {/* 結果レポートタブは常に表示（データがなければ案内のみ） */}
         {tab === 'report' && (
