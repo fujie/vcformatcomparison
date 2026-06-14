@@ -1,11 +1,18 @@
 import type { ComplexityMetric } from '../benchmarks/deserializationComplexity'
 import type { FormatName } from '../benchmarks/signatureSpeed'
+import type { BenchMode, BackendJobResult, BackendComplexityEntry } from '../types/backendResult'
+import { isBackendComplexityArray } from '../types/backendResult'
 
-interface Props { results: ComplexityMetric[] }
+interface Props {
+  results: ComplexityMetric[] | null
+  benchMode?: BenchMode
+  backendResult?: BackendJobResult | null
+}
 
 const COLORS: Record<FormatName, string> = {
   'SD-JWT VC': '#60a5fa',
   'JSON-LD VC': '#f59e0b',
+  'JSON-LD VC (JCS)': '#fb923c',
   'mdoc': '#34d399',
 }
 
@@ -26,7 +33,87 @@ const METRICS = [
   { key: 'parseTimeMs',          label: 'パース時間 (50回平均)',      unit: 'ms' },
 ] as const
 
-export function ComplexityResults({ results }: Props) {
+/** Render backend complexity results as a simple table */
+function BackendComplexityPanel({ entries }: { entries: BackendComplexityEntry[] }) {
+  const fmt = (v: number) => v.toFixed(4)
+  const fmtMs = (v: number) => v < 1 ? `${(v * 1000).toFixed(1)} μs` : `${v.toFixed(3)} ms`
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      <div style={panelStyle}>
+        <h3 style={sectionTitle}>デシリアライズ複雑性メトリクス比較（バックエンド実測）</h3>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr>
+                {['フォーマット', 'ライブラリ', 'LOC', '非同期ステップ', '循環的複雑度', '外部ネットワーク', 'パース時間 (avg)', '外部依存'].map(h =>
+                  <th key={h} style={{ textAlign: 'left', padding: '7px 10px', color: '#64748b', fontWeight: 600, borderBottom: '1px solid #334155', fontSize: 11, whiteSpace: 'nowrap' }}>{h}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map(e => (
+                <tr key={`${e.format}-${e.lib}`} style={{ borderBottom: '1px solid #1e293b' }}>
+                  <td style={{ padding: '7px 10px', color: COLORS[e.format], fontWeight: 600, fontSize: 12 }}>{e.format}</td>
+                  <td style={{ padding: '7px 10px', color: '#94a3b8', fontSize: 11 }}>{e.lib}</td>
+                  <td style={{ padding: '7px 10px', color: '#e2e8f0', fontSize: 12 }}>{e.linesOfCode}</td>
+                  <td style={{ padding: '7px 10px', color: '#e2e8f0', fontSize: 12 }}>{e.asyncSteps}</td>
+                  <td style={{ padding: '7px 10px', color: '#e2e8f0', fontSize: 12 }}>{e.cyclomaticComplexity}</td>
+                  <td style={{ padding: '7px 10px', color: e.externalNetworkCalls > 0 ? '#f87171' : '#4ade80', fontSize: 12 }}>{e.externalNetworkCalls}</td>
+                  <td style={{ padding: '7px 10px', color: '#60a5fa', fontWeight: 600, fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
+                    {fmtMs(e.parseTimeMs)}
+                  </td>
+                  <td style={{ padding: '7px 10px', color: '#64748b', fontSize: 11 }}>{e.externalDependencies.join(', ')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Parse time comparison bar */}
+      <div style={panelStyle}>
+        <h3 style={sectionTitle}>パース時間比較（Node.js process.hrtime.bigint() 実測）</h3>
+        {(['withLib', 'noLib'] as const).map(libKey => {
+          const libEntries = entries.filter(e => e.lib === libKey)
+          if (libEntries.length === 0) return null
+          const maxMs = Math.max(...libEntries.map(e => e.parseTimeMs), 0.001)
+          return (
+            <div key={libKey} style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>{libKey === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'}</div>
+              {libEntries.map(e => {
+                const pct = (e.parseTimeMs / maxMs) * 100
+                return (
+                  <div key={e.format} style={{ marginBottom: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span style={{ fontSize: 12, color: COLORS[e.format] }}>{e.format}</span>
+                      <span style={{ fontSize: 12, color: '#e2e8f0', fontWeight: 600 }}>{fmtMs(e.parseTimeMs)}</span>
+                    </div>
+                    <div style={{ height: 8, background: '#0f172a', borderRadius: 4 }}>
+                      <div style={{ height: '100%', width: `${pct}%`, background: COLORS[e.format], borderRadius: 4 }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+export function ComplexityResults({ results, benchMode = 'frontend', backendResult }: Props) {
+  // Backend mode
+  if (benchMode === 'backend') {
+    const raw = backendResult?.complexityResult
+    if (isBackendComplexityArray(raw)) {
+      return <BackendComplexityPanel entries={raw} />
+    }
+    return <div style={{ color: '#94a3b8', padding: 32 }}>バックエンド複雑性データなし — バックエンド計測を実行してください</div>
+  }
+
+  // Frontend mode guard
+  if (!results || results.length === 0) return null
+
   const maxMap = Object.fromEntries(
     METRICS.map(({ key }) => [key, Math.max(...results.map((r) => r[key] as number), 0.001)])
   )

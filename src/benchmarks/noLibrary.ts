@@ -228,15 +228,48 @@ export async function mdocVerifyNoLib(mdocBytes: Uint8Array, publicKey: CryptoKe
 // This isolates the "binary vs text" difference from the algorithm difference.
 
 export interface SerialBenchResult {
-  format: 'SD-JWT VC' | 'mdoc'
-  operation: 'encode' | 'decode'
+  format: 'SD-JWT VC' | 'JSON-LD VC' | 'JSON-LD VC (JCS)' | 'mdoc'
+  operation: 'encode' | 'decode' | 'normalize'
+  label?: string
   iterations: number
   avgMs: number
   opsPerSec: number
   payloadSizeBytes: number
+  // Statistical distribution
+  stdDevMs?: number
+  ci95Ms?: number
+  p50Ms?: number
+  p90Ms?: number
+  p95Ms?: number
+  p99Ms?: number
+  minMs?: number
+  maxMs?: number
+}
+
+function computeMsStats(timingsMs: number[]) {
+  const n = timingsMs.length
+  const sorted = [...timingsMs].sort((a, b) => a - b)
+  const avg = sorted.reduce((s, v) => s + v, 0) / n
+  const variance = sorted.reduce((s, v) => s + (v - avg) ** 2, 0) / n
+  const stdDev = Math.sqrt(variance)
+  const p = (pct: number) => sorted[Math.min(Math.floor(n * pct), n - 1)]
+  return {
+    avgMs: avg,
+    opsPerSec: 1000 / avg,
+    stdDevMs: stdDev,
+    ci95Ms: 1.96 * stdDev / Math.sqrt(n),
+    p50Ms: p(0.50),
+    p90Ms: p(0.90),
+    p95Ms: p(0.95),
+    p99Ms: p(0.99),
+    minMs: sorted[0],
+    maxMs: sorted[n - 1],
+  }
 }
 
 export async function runSerialBenchmarks(iterations = 200): Promise<SerialBenchResult[]> {
+  const results: SerialBenchResult[] = []
+
   // --- SD-JWT VC: JSON + base64url (no signature, no hash) ---
   const sdPayload = {
     iss: 'https://issuer.example.com', iat: 0, exp: 3600,
@@ -246,26 +279,94 @@ export async function runSerialBenchmarks(iterations = 200): Promise<SerialBench
     address: { street_address: '1-1-1 Shibuya', locality: 'Tokyo', country: 'JP' },
   }
   const sdHeader = b64url(JSON.stringify({ alg: 'EdDSA', typ: 'vc+sd-jwt' }))
-
-  // Encode: JSON.stringify header+payload → base64url (no signing)
-  const t0 = performance.now()
   let sdToken = ''
-  for (let i = 0; i < iterations; i++) {
-    const h = sdHeader
-    const p = b64url(JSON.stringify({ ...sdPayload, iat: i }))
-    sdToken = `${h}.${p}.AAABBBCCC` // dummy sig
-  }
-  const sdEncodeTotal = performance.now() - t0
 
-  // Decode: base64url → JSON.parse
-  const t1 = performance.now()
+  const sdEncTimings: number[] = []
   for (let i = 0; i < iterations; i++) {
+    const t = performance.now()
+    const p = b64url(JSON.stringify({ ...sdPayload, iat: i }))
+    sdToken = `${sdHeader}.${p}.AAABBBCCC`
+    sdEncTimings.push(performance.now() - t)
+  }
+  const sdEncStats = computeMsStats(sdEncTimings)
+  const sdSize = new TextEncoder().encode(sdToken).length
+
+  const sdDecTimings: number[] = []
+  for (let i = 0; i < iterations; i++) {
+    const t = performance.now()
     const [h64, p64] = sdToken.split('.')
     JSON.parse(atob(h64.replace(/-/g, '+').replace(/_/g, '/')))
     JSON.parse(atob(p64.replace(/-/g, '+').replace(/_/g, '/')))
+    sdDecTimings.push(performance.now() - t)
   }
-  const sdDecodeTotal = performance.now() - t1
-  const sdSize = new TextEncoder().encode(sdToken).length
+  const sdDecStats = computeMsStats(sdDecTimings)
+
+  results.push(
+    { format: 'SD-JWT VC', operation: 'encode', iterations, payloadSizeBytes: sdSize, ...sdEncStats },
+    { format: 'SD-JWT VC', operation: 'decode', iterations, payloadSizeBytes: sdSize, ...sdDecStats },
+  )
+
+  // --- JSON-LD VC: JSON encode/decode ---
+  const jldCred = JSONLD_CREDENTIAL as unknown as Record<string, unknown>
+  let jldJson = ''
+
+  const jldEncTimings: number[] = []
+  for (let i = 0; i < iterations; i++) {
+    const t = performance.now()
+    jldJson = JSON.stringify(jldCred)
+    jldEncTimings.push(performance.now() - t)
+  }
+  const jldEncStats = computeMsStats(jldEncTimings)
+  const jldSize = new TextEncoder().encode(jldJson).length
+
+  const jldDecTimings: number[] = []
+  for (let i = 0; i < iterations; i++) {
+    const t = performance.now()
+    JSON.parse(jldJson)
+    jldDecTimings.push(performance.now() - t)
+  }
+  const jldDecStats = computeMsStats(jldDecTimings)
+
+  results.push(
+    { format: 'JSON-LD VC', operation: 'encode', iterations, payloadSizeBytes: jldSize, ...jldEncStats },
+    { format: 'JSON-LD VC', operation: 'decode', iterations, payloadSizeBytes: jldSize, ...jldDecStats },
+  )
+
+  // --- JSON-LD VC: URDNA2015 inline normalize (no library) ---
+  let normResult = ''
+  const normTimings: number[] = []
+  for (let i = 0; i < iterations; i++) {
+    const t = performance.now()
+    normResult = jsonLdNormalize(jldCred)
+    normTimings.push(performance.now() - t)
+  }
+  const normStats = computeMsStats(normTimings)
+
+  results.push({
+    format: 'JSON-LD VC', operation: 'normalize', label: 'URDNA2015 (inline)',
+    iterations, payloadSizeBytes: new TextEncoder().encode(normResult).length, ...normStats,
+  })
+
+  // --- JSON-LD VC (JCS): JCS canonicalize ---
+  function jcsCanonical(v: unknown): string {
+    if (v === null || typeof v !== 'object') return JSON.stringify(v)
+    if (Array.isArray(v)) return '[' + (v as unknown[]).map(jcsCanonical).join(',') + ']'
+    const obj = v as Record<string, unknown>
+    return '{' + Object.keys(obj).sort().map(k => `${JSON.stringify(k)}:${jcsCanonical(obj[k])}`).join(',') + '}'
+  }
+  let jcsResult = ''
+  const jcsTimings: number[] = []
+  for (let i = 0; i < iterations; i++) {
+    const t = performance.now()
+    jcsResult = jcsCanonical(jldCred)
+    jcsTimings.push(performance.now() - t)
+  }
+  const jcsStats = computeMsStats(jcsTimings)
+
+  results.push({
+    format: 'JSON-LD VC (JCS)', operation: 'normalize', label: 'JCS (RFC 8785)',
+    iterations, payloadSizeBytes: new TextEncoder().encode(jcsResult).length, ...jcsStats,
+  })
 
   // --- mdoc: CBOR encode/decode (no signing, no hashing) ---
   const mdocDoc = new Map<string, unknown>([
@@ -284,39 +385,153 @@ export async function runSerialBenchmarks(iterations = 200): Promise<SerialBench
     ])],
   ])
 
-  const t2 = performance.now()
   let mdocBytes = new Uint8Array(0)
+  const mdocEncTimings: number[] = []
   for (let i = 0; i < iterations; i++) {
+    const t = performance.now()
     mdocBytes = cborEncode(mdocDoc)
+    mdocEncTimings.push(performance.now() - t)
   }
-  const mdocEncodeTotal = performance.now() - t2
+  const mdocEncStats = computeMsStats(mdocEncTimings)
 
-  const t3 = performance.now()
+  const mdocDecTimings: number[] = []
   for (let i = 0; i < iterations; i++) {
+    const t = performance.now()
     cborDecode(mdocBytes)
+    mdocDecTimings.push(performance.now() - t)
   }
-  const mdocDecodeTotal = performance.now() - t3
+  const mdocDecStats = computeMsStats(mdocDecTimings)
 
-  return [
-    { format: 'SD-JWT VC', operation: 'encode', iterations, avgMs: sdEncodeTotal / iterations,   opsPerSec: (iterations / sdEncodeTotal) * 1000,   payloadSizeBytes: sdSize },
-    { format: 'SD-JWT VC', operation: 'decode', iterations, avgMs: sdDecodeTotal / iterations,   opsPerSec: (iterations / sdDecodeTotal) * 1000,   payloadSizeBytes: sdSize },
-    { format: 'mdoc',       operation: 'encode', iterations, avgMs: mdocEncodeTotal / iterations, opsPerSec: (iterations / mdocEncodeTotal) * 1000, payloadSizeBytes: mdocBytes.length },
-    { format: 'mdoc',       operation: 'decode', iterations, avgMs: mdocDecodeTotal / iterations, opsPerSec: (iterations / mdocDecodeTotal) * 1000, payloadSizeBytes: mdocBytes.length },
-  ]
+  results.push(
+    { format: 'mdoc', operation: 'encode', iterations, payloadSizeBytes: mdocBytes.length, ...mdocEncStats },
+    { format: 'mdoc', operation: 'decode', iterations, payloadSizeBytes: mdocBytes.length, ...mdocDecStats },
+  )
+
+  return results
 }
 
 // ---- Benchmarks -------------------------------------------
 
 export interface NoLibResult {
-  format: 'SD-JWT VC' | 'mdoc'
+  format: 'SD-JWT VC' | 'JSON-LD VC' | 'mdoc'
   mode: 'withLib' | 'noLib'
   operation: 'sign' | 'verify'
   iterations: number
   avgMs: number
   opsPerSec: number
+  // Statistical distribution
+  stdDevMs?: number
+  ci95Ms?: number
+  p50Ms?: number
+  p90Ms?: number
+  p95Ms?: number
+  p99Ms?: number
+  minMs?: number
+  maxMs?: number
 }
 
-import { benchmarkSdJwt, benchmarkMdoc, MDOC_FIELDS } from './signatureSpeed'
+import { benchmarkSdJwt, benchmarkMdoc, benchmarkJsonLdVc, MDOC_FIELDS, JSONLD_CREDENTIAL } from './signatureSpeed'
+import { generateEd25519KeyPair, ed25519Sign, ed25519Verify } from '../lib/cryptoUtils'
+
+// ---- JSON-LD VC — no library (simplified URDNA2015 for blank-node-free credentials) ---
+//
+// For credentials with no blank nodes, URDNA2015 reduces to three steps:
+//   1. Expand JSON-LD terms to full IRIs using static context mappings
+//   2. Serialize each RDF triple as an N-Quad line
+//   3. Sort N-Quads lexicographically and concatenate
+// The expensive blank-node canonicalization step (O(n! × n²) in worst case)
+// is unnecessary when all subjects/objects are named IRIs.
+
+const _CRED  = 'https://www.w3.org/2018/credentials#'
+const _SCH   = 'http://schema.org/'
+const _XSD   = 'http://www.w3.org/2001/XMLSchema#'
+const _RDF_T = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type'
+
+const _TERMS: Record<string, { iri: string; vt?: string }> = {
+  VerifiableCredential: { iri: `${_CRED}VerifiableCredential` },
+  credentialSubject:    { iri: `${_CRED}credentialSubject`,  vt: '@id' },
+  credentialStatus:     { iri: `${_CRED}credentialStatus`,   vt: '@id' },
+  expirationDate:       { iri: `${_CRED}expirationDate`,     vt: `${_XSD}dateTime` },
+  issuanceDate:         { iri: `${_CRED}issuanceDate`,       vt: `${_XSD}dateTime` },
+  issuer:               { iri: `${_CRED}issuer`,             vt: '@id' },
+  validFrom:            { iri: `${_CRED}validFrom`,          vt: `${_XSD}dateTime` },
+  validUntil:           { iri: `${_CRED}validUntil`,         vt: `${_XSD}dateTime` },
+  given_name:           { iri: `${_SCH}givenName` },
+  family_name:          { iri: `${_SCH}familyName` },
+  birthdate:            { iri: `${_SCH}birthDate` },
+  name:                 { iri: `${_SCH}name` },
+}
+
+function _ntLit(v: string, type?: string): string {
+  const e = v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+              .replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')
+  return type ? `"${e}"^^<${type}>` : `"${e}"`
+}
+
+function _expandTriples(subj: string, obj: Record<string, unknown>): string[] {
+  const q: string[] = []
+  for (const [k, v] of Object.entries(obj)) {
+    if (k === 'id' || k === '@context') continue
+    if (k === 'type') {
+      for (const t of (Array.isArray(v) ? v : [v]))
+        q.push(`<${subj}> <${_RDF_T}> <${_TERMS[t as string]?.iri ?? (t as string)}> .`)
+      continue
+    }
+    const term = _TERMS[k]; if (!term) continue
+    if (term.vt === '@id') {
+      if (typeof v === 'object' && v !== null) {
+        const nestedId = (v as Record<string, unknown>).id as string
+        q.push(`<${subj}> <${term.iri}> <${nestedId}> .`)
+        q.push(..._expandTriples(nestedId, v as Record<string, unknown>))
+      } else {
+        q.push(`<${subj}> <${term.iri}> <${v as string}> .`)
+      }
+    } else {
+      q.push(`<${subj}> <${term.iri}> ${_ntLit(v as string, term.vt)} .`)
+    }
+  }
+  return q
+}
+
+function jsonLdNormalize(doc: Record<string, unknown>): string {
+  return _expandTriples(doc.id as string, doc).sort().join('\n') + '\n'
+}
+
+async function benchmarkJsonLdVcNoLib(iterations: number): Promise<NoLibResult[]> {
+  const { privateKey, publicKey } = await generateEd25519KeyPair()
+  const enc = new TextEncoder()
+  const cred = JSONLD_CREDENTIAL as unknown as Record<string, unknown>
+
+  const sha256 = async (str: string) =>
+    new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode(str)))
+
+  const wSig = await ed25519Sign(await sha256(jsonLdNormalize(cred)), privateKey)
+  await ed25519Verify(wSig, await sha256(jsonLdNormalize(cred)), publicKey)
+
+  const signTimings: number[] = []
+  let lastSig: Uint8Array = wSig
+  for (let i = 0; i < iterations; i++) {
+    const t = performance.now()
+    const hash = await sha256(jsonLdNormalize(cred))
+    lastSig = await ed25519Sign(hash, privateKey)
+    signTimings.push(performance.now() - t)
+  }
+  const signStats = computeMsStats(signTimings)
+
+  const verifyTimings: number[] = []
+  for (let i = 0; i < iterations; i++) {
+    const t = performance.now()
+    const hash = await sha256(jsonLdNormalize(cred))
+    await ed25519Verify(lastSig, hash, publicKey)
+    verifyTimings.push(performance.now() - t)
+  }
+  const verifyStats = computeMsStats(verifyTimings)
+
+  return [
+    { format: 'JSON-LD VC', mode: 'noLib', operation: 'sign',   iterations, ...signStats },
+    { format: 'JSON-LD VC', mode: 'noLib', operation: 'verify', iterations, ...verifyStats },
+  ]
+}
 
 const SD_JWT_PAYLOAD_P256 = {
   iss: 'https://issuer.example.com',
@@ -334,20 +549,26 @@ async function benchmarkSdJwtNoLib(iterations: number): Promise<NoLibResult[]> {
   const warmToken = await sdJwtSignNoLib(SD_JWT_PAYLOAD_P256, privateKey)
   await sdJwtVerifyNoLib(warmToken, publicKey)
 
-  const t0 = performance.now()
+  const signTimings: number[] = []
   let token = warmToken
   for (let i = 0; i < iterations; i++) {
+    const t = performance.now()
     token = await sdJwtSignNoLib({ ...SD_JWT_PAYLOAD_P256, iat: Date.now() + i }, privateKey)
+    signTimings.push(performance.now() - t)
   }
-  const signTotal = performance.now() - t0
+  const signStats = computeMsStats(signTimings)
 
-  const t1 = performance.now()
-  for (let i = 0; i < iterations; i++) await sdJwtVerifyNoLib(token, publicKey)
-  const verifyTotal = performance.now() - t1
+  const verifyTimings: number[] = []
+  for (let i = 0; i < iterations; i++) {
+    const t = performance.now()
+    await sdJwtVerifyNoLib(token, publicKey)
+    verifyTimings.push(performance.now() - t)
+  }
+  const verifyStats = computeMsStats(verifyTimings)
 
   return [
-    { format: 'SD-JWT VC', mode: 'noLib', operation: 'sign',   iterations, avgMs: signTotal / iterations,   opsPerSec: (iterations / signTotal)   * 1000 },
-    { format: 'SD-JWT VC', mode: 'noLib', operation: 'verify', iterations, avgMs: verifyTotal / iterations, opsPerSec: (iterations / verifyTotal) * 1000 },
+    { format: 'SD-JWT VC', mode: 'noLib', operation: 'sign',   iterations, ...signStats },
+    { format: 'SD-JWT VC', mode: 'noLib', operation: 'verify', iterations, ...verifyStats },
   ]
 }
 
@@ -356,18 +577,26 @@ async function benchmarkMdocNoLib(iterations: number): Promise<NoLibResult[]> {
   const warmMdoc = await mdocSignNoLib(MDOC_FIELDS, privateKey)
   await mdocVerifyNoLib(warmMdoc, publicKey)
 
-  const t0 = performance.now()
+  const signTimings: number[] = []
   let last = warmMdoc
-  for (let i = 0; i < iterations; i++) last = await mdocSignNoLib({ ...MDOC_FIELDS, document_number: `JP-${i}` }, privateKey)
-  const signTotal = performance.now() - t0
+  for (let i = 0; i < iterations; i++) {
+    const t = performance.now()
+    last = await mdocSignNoLib({ ...MDOC_FIELDS, document_number: `JP-${i}` }, privateKey)
+    signTimings.push(performance.now() - t)
+  }
+  const signStats = computeMsStats(signTimings)
 
-  const t1 = performance.now()
-  for (let i = 0; i < iterations; i++) await mdocVerifyNoLib(last, publicKey)
-  const verifyTotal = performance.now() - t1
+  const verifyTimings: number[] = []
+  for (let i = 0; i < iterations; i++) {
+    const t = performance.now()
+    await mdocVerifyNoLib(last, publicKey)
+    verifyTimings.push(performance.now() - t)
+  }
+  const verifyStats = computeMsStats(verifyTimings)
 
   return [
-    { format: 'mdoc', mode: 'noLib', operation: 'sign',   iterations, avgMs: signTotal / iterations,   opsPerSec: (iterations / signTotal)   * 1000 },
-    { format: 'mdoc', mode: 'noLib', operation: 'verify', iterations, avgMs: verifyTotal / iterations, opsPerSec: (iterations / verifyTotal) * 1000 },
+    { format: 'mdoc', mode: 'noLib', operation: 'sign',   iterations, ...signStats },
+    { format: 'mdoc', mode: 'noLib', operation: 'verify', iterations, ...verifyStats },
   ]
 }
 
@@ -375,18 +604,34 @@ export async function runNoLibBenchmarks(
   iterations: number,
   onProgress: (msg: string) => void,
 ): Promise<NoLibResult[]> {
+  type SpeedLike = { format: string; operation: 'sign' | 'verify'; iterations: number; avgMs: number; opsPerSec: number; stdDevMs?: number; ci95Ms?: number; p50Ms?: number; p90Ms?: number; p95Ms?: number; p99Ms?: number; minMs?: number; maxMs?: number }
+  const toNoLib = (r: SpeedLike, mode: 'withLib' | 'noLib'): NoLibResult => ({
+    format: r.format as NoLibResult['format'],
+    mode, operation: r.operation,
+    iterations: r.iterations, avgMs: r.avgMs, opsPerSec: r.opsPerSec,
+    stdDevMs: r.stdDevMs, ci95Ms: r.ci95Ms,
+    p50Ms: r.p50Ms, p90Ms: r.p90Ms, p95Ms: r.p95Ms, p99Ms: r.p99Ms,
+    minMs: r.minMs, maxMs: r.maxMs,
+  })
+
   onProgress('SD-JWT VC ライブラリあり計測中...')
-  const sdWithLib = (await benchmarkSdJwt(iterations)).map<NoLibResult>(r => ({ ...r, mode: 'withLib' as const }))
+  const sdWithLib = (await benchmarkSdJwt(iterations)).map(r => toNoLib(r, 'withLib'))
 
   onProgress('SD-JWT VC ライブラリなし計測中...')
   const sdNoLib = await benchmarkSdJwtNoLib(iterations)
 
+  onProgress('JSON-LD VC ライブラリあり計測中（URDNA2015）...')
+  const jlWithLib = (await benchmarkJsonLdVc(iterations)).map(r => toNoLib(r, 'withLib'))
+
+  onProgress('JSON-LD VC ライブラリなし計測中（N-Quads 静的展開）...')
+  const jlNoLib = await benchmarkJsonLdVcNoLib(iterations)
+
   onProgress('mdoc ライブラリあり計測中...')
-  const mdWithLib = (await benchmarkMdoc(iterations)).map<NoLibResult>(r => ({ ...r, mode: 'withLib' as const }))
+  const mdWithLib = (await benchmarkMdoc(iterations)).map(r => toNoLib(r, 'withLib'))
 
   onProgress('mdoc ライブラリなし計測中...')
   const mdNoLib = await benchmarkMdocNoLib(iterations)
 
   onProgress('完了')
-  return [...sdWithLib, ...sdNoLib, ...mdWithLib, ...mdNoLib]
+  return [...sdWithLib, ...sdNoLib, ...jlWithLib, ...jlNoLib, ...mdWithLib, ...mdNoLib]
 }

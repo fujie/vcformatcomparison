@@ -2,7 +2,7 @@
 // Each entry has: language, format, mode (withLib/noLib), LOC, dependencies, code.
 
 export type Lang   = 'TypeScript' | 'Go' | 'Python'
-export type FmtKey = 'SD-JWT VC' | 'JSON-LD VC' | 'mdoc'
+export type FmtKey = 'SD-JWT VC' | 'JSON-LD VC' | 'JSON-LD VC (JCS)' | 'mdoc'
 export type Mode   = 'withLib' | 'noLib'
 
 export interface Snippet {
@@ -195,27 +195,69 @@ claims = jwt.decode(token, public_key, algorithms=['ES256'])`,
 
 const JSONLD_TS_NOLIB: Snippet = {
   language: 'TypeScript', format: 'JSON-LD VC', mode: 'noLib',
-  loc: 0, dependencies: [], stdlibOnly: true,
-  impractical: true, estimatedLoc: 1200,
-  notes: 'URDNA2015 (RDF Dataset Normalization) の完全実装が必要。ブランクノード同定アルゴリズムは N-Quads シリアライザ・グラフ同型探索を含み、仕様書で 30+ ページに及ぶ。',
-  code: `// URDNA2015 をゼロから実装するには以下が必要:
-//
-//  1. JSON-LD → Expanded form 変換
-//     IRI解決・@contextマッピング・@type/@id処理 (~300行)
-//
-//  2. Expanded form → RDF Dataset 変換
-//     トリプル抽出・ブランクノード生成 (~200行)
-//
-//  3. RDF Dataset → N-Quads シリアライズ
-//     IRI/リテラル/bNode のエスケープ (~150行)
-//
-//  4. Hash N-Degree Quads (URDNA2015 §4.7)
-//     ブランクノード同定アルゴリズム
-//     ※ 計算量 O(n! × n²) — ポイズングラフで指数時間 (~400行)
-//
-//  5. 正規化 → SHA-256 → Ed25519 署名
-//
-// 合計推定: ~1200行  ← ライブラリ使用推奨`,
+  loc: 62, dependencies: [], stdlibOnly: true,
+  notes: 'blank node がない資格情報では URDNA2015 は「静的コンテキスト展開 → N-Quads → ソート」に簡略化できる。blank node を含む汎用実装は別途 ~1200行が必要。',
+  code: `// URDNA2015 (blank-node-free 向け簡略実装)
+// ブランクノードがない場合: 展開 → N-Quads → ソート のみ
+
+const CRED  = 'https://www.w3.org/2018/credentials#'
+const SCH   = 'http://schema.org/'
+const XSD   = 'http://www.w3.org/2001/XMLSchema#'
+const RDF_T = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type'
+
+// 静的コンテキストマッピング（VC_CONTEXT から抽出）
+const TERMS: Record<string, { iri: string; vt?: string }> = {
+  VerifiableCredential: { iri: CRED + 'VerifiableCredential' },
+  credentialSubject:    { iri: CRED + 'credentialSubject', vt: '@id' },
+  issuanceDate:         { iri: CRED + 'issuanceDate', vt: XSD + 'dateTime' },
+  issuer:               { iri: CRED + 'issuer',        vt: '@id' },
+  given_name:           { iri: SCH + 'givenName' },
+  family_name:          { iri: SCH + 'familyName' },
+  birthdate:            { iri: SCH + 'birthDate' },
+  // ... 他の用語
+}
+
+function ntLit(v: string, type?: string): string {
+  const e = v.replace(/\\/g,'\\\\').replace(/"/g,'\\"')
+              .replace(/\\n/g,'\\\\n').replace(/\\r/g,'\\\\r')
+  return type ? \`"\${e}"^^<\${type}>\` : \`"\${e}"\`
+}
+
+function expandTriples(subj: string, obj: Record<string, unknown>): string[] {
+  const q: string[] = []
+  for (const [k, v] of Object.entries(obj)) {
+    if (k === 'id' || k === '@context') continue
+    if (k === 'type') {
+      for (const t of Array.isArray(v) ? v : [v])
+        q.push(\`<\${subj}> <\${RDF_T}> <\${TERMS[t]?.iri ?? t}> .\`)
+      continue
+    }
+    const term = TERMS[k]; if (!term) continue
+    if (term.vt === '@id') {
+      if (typeof v === 'object' && v !== null) {
+        const nestedId = (v as any).id as string
+        q.push(\`<\${subj}> <\${term.iri}> <\${nestedId}> .\`)
+        q.push(...expandTriples(nestedId, v as any))
+      } else {
+        q.push(\`<\${subj}> <\${term.iri}> <\${v}> .\`)
+      }
+    } else {
+      q.push(\`<\${subj}> <\${term.iri}> \${ntLit(v as string, term.vt)} .\`)
+    }
+  }
+  return q
+}
+
+function jsonLdNormalize(doc: Record<string, unknown>): string {
+  return expandTriples(doc.id as string, doc).sort().join('\\n') + '\\n'
+}
+
+async function sign(doc: object, privateKey: CryptoKey): Promise<ArrayBuffer> {
+  const norm = jsonLdNormalize(doc as Record<string, unknown>)
+  const hash = await crypto.subtle.digest('SHA-256',
+    new TextEncoder().encode(norm))
+  return crypto.subtle.sign({ name: 'Ed25519' }, privateKey, hash)
+}`,
 }
 
 const JSONLD_TS_WITHLIB: Snippet = {
@@ -243,17 +285,76 @@ async function sign(doc: object, privateKey: Uint8Array): Promise<string> {
 
 const JSONLD_GO_NOLIB: Snippet = {
   language: 'Go', format: 'JSON-LD VC', mode: 'noLib',
-  loc: 0, dependencies: [], stdlibOnly: true,
-  impractical: true, estimatedLoc: 1500,
-  notes: 'Go でも URDNA2015 をゼロ実装するには同様に ~1500行。既存実装は piprate/json-gold。',
-  code: `// Go で URDNA2015 をゼロ実装するには:
-//
-// - JSON-LD プロセッサ (expand/compact/frame) ~400行
-// - RDF Dataset 構造体 + N-Quads 変換 ~300行
-// - Hash N-Degree Quads (グラフ同型) ~500行
-// - SHA-256 + Ed25519 署名 (標準ライブラリで可能)
-//
-// 合計推定: ~1500行`,
+  loc: 65, dependencies: [], stdlibOnly: true,
+  notes: 'blank node なし資格情報向けの静的コンテキスト展開 + N-Quads ソート実装。汎用 URDNA2015 は ~1500行。',
+  code: `package main
+
+import (
+    "crypto/ed25519"
+    "crypto/sha256"
+    "encoding/json"
+    "fmt"
+    "sort"
+    "strings"
+)
+
+const credNS = "https://www.w3.org/2018/credentials#"
+const schNS  = "http://schema.org/"
+const xsdNS  = "http://www.w3.org/2001/XMLSchema#"
+const rdfType = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+
+var terms = map[string]struct{ iri, vt string }{
+    "VerifiableCredential": {credNS + "VerifiableCredential", ""},
+    "credentialSubject":    {credNS + "credentialSubject", "@id"},
+    "issuanceDate":         {credNS + "issuanceDate", xsdNS + "dateTime"},
+    "issuer":               {credNS + "issuer", "@id"},
+    "given_name":           {schNS + "givenName", ""},
+    "family_name":          {schNS + "familyName", ""},
+    "birthdate":            {schNS + "birthDate", ""},
+}
+
+func ntLit(v, dtype string) string {
+    e := strings.NewReplacer(\`\\\\\`, \`\\\\\\\\\`, \`"\`, \`\\\\"\`, "\\n", \`\\\\n\`).Replace(v)
+    if dtype == "" { return fmt.Sprintf(\`"%s"\`, e) }
+    return fmt.Sprintf(\`"%s"^^<%s>\`, e, dtype)
+}
+
+func expandTriples(subj string, obj map[string]any) []string {
+    var q []string
+    for k, v := range obj {
+        if k == "id" || k == "@context" { continue }
+        if k == "type" {
+            typeIRI := terms[v.(string)].iri
+            q = append(q, fmt.Sprintf("<%s> <%s> <%s> .", subj, rdfType, typeIRI))
+            continue
+        }
+        t, ok := terms[k]; if !ok { continue }
+        if t.vt == "@id" {
+            if nested, ok := v.(map[string]any); ok {
+                nid := nested["id"].(string)
+                q = append(q, fmt.Sprintf("<%s> <%s> <%s> .", subj, t.iri, nid))
+                q = append(q, expandTriples(nid, nested)...)
+            } else {
+                q = append(q, fmt.Sprintf("<%s> <%s> <%s> .", subj, t.iri, v))
+            }
+        } else {
+            q = append(q, fmt.Sprintf("<%s> <%s> %s .", subj, t.iri, ntLit(v.(string), t.vt)))
+        }
+    }
+    return q
+}
+
+func jsonLdNormalize(doc map[string]any) string {
+    q := expandTriples(doc["id"].(string), doc)
+    sort.Strings(q)
+    return strings.Join(q, "\\n") + "\\n"
+}
+
+func sign(doc map[string]any, priv ed25519.PrivateKey) []byte {
+    norm := jsonLdNormalize(doc)
+    h := sha256.Sum256([]byte(norm))
+    return ed25519.Sign(priv, h[:])
+}`,
 }
 
 const JSONLD_GO_WITHLIB: Snippet = {
@@ -282,15 +383,59 @@ func Sign(doc map[string]any, privKey ed25519.PrivateKey) ([]byte, error) {
 
 const JSONLD_PY_NOLIB: Snippet = {
   language: 'Python', format: 'JSON-LD VC', mode: 'noLib',
-  loc: 0, dependencies: [], stdlibOnly: true,
-  impractical: true, estimatedLoc: 1300,
-  notes: 'Python でも同様。pyld は 3000行超の実装。',
-  code: `# Python で URDNA2015 をゼロ実装:
-# - json-ld expand/compact ~350行
-# - RDF triple extraction ~250行
-# - N-Quads serializer ~200行
-# - Hash N-Degree Quads ~450行
-# 合計推定: ~1300行`,
+  loc: 55, dependencies: [], stdlibOnly: true,
+  notes: 'blank node なし資格情報向けの静的コンテキスト展開 + N-Quads ソート実装。汎用 URDNA2015 は ~1300行。',
+  code: `import hashlib, json
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+CRED  = 'https://www.w3.org/2018/credentials#'
+SCH   = 'http://schema.org/'
+XSD   = 'http://www.w3.org/2001/XMLSchema#'
+RDF_T = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type'
+
+TERMS = {
+    'VerifiableCredential': {'iri': CRED+'VerifiableCredential', 'vt': None},
+    'credentialSubject':    {'iri': CRED+'credentialSubject',    'vt': '@id'},
+    'issuanceDate':         {'iri': CRED+'issuanceDate',         'vt': XSD+'dateTime'},
+    'issuer':               {'iri': CRED+'issuer',               'vt': '@id'},
+    'given_name':           {'iri': SCH+'givenName',             'vt': None},
+    'family_name':          {'iri': SCH+'familyName',            'vt': None},
+    'birthdate':            {'iri': SCH+'birthDate',             'vt': None},
+}
+
+def nt_lit(v: str, vt: str | None) -> str:
+    e = v.replace('\\\\', '\\\\\\\\').replace('"', '\\\\"')\\
+         .replace('\\n', '\\\\n').replace('\\r', '\\\\r')
+    return f'"{e}"^^<{vt}>' if vt else f'"{e}"'
+
+def expand_triples(subj: str, obj: dict) -> list[str]:
+    q = []
+    for k, v in obj.items():
+        if k in ('id', '@context'): continue
+        if k == 'type':
+            q.append(f'<{subj}> <{RDF_T}> <{TERMS[v]["iri"]}> .')
+            continue
+        t = TERMS.get(k)
+        if not t: continue
+        if t['vt'] == '@id':
+            if isinstance(v, dict):
+                nid = v['id']
+                q.append(f'<{subj}> <{t["iri"]}> <{nid}> .')
+                q.extend(expand_triples(nid, v))
+            else:
+                q.append(f'<{subj}> <{t["iri"]}> <{v}> .')
+        else:
+            q.append(f'<{subj}> <{t["iri"]}> {nt_lit(v, t["vt"])} .')
+    return q
+
+def jsonld_normalize(doc: dict) -> str:
+    quads = expand_triples(doc['id'], doc)
+    return '\\n'.join(sorted(quads)) + '\\n'
+
+def sign(doc: dict, private_key: Ed25519PrivateKey) -> bytes:
+    norm   = jsonld_normalize(doc)
+    digest = hashlib.sha256(norm.encode()).digest()
+    return private_key.sign(digest)`,
 }
 
 const JSONLD_PY_WITHLIB: Snippet = {
@@ -531,7 +676,7 @@ export function getSnippet(lang: Lang, fmt: FmtKey, mode: Mode): Snippet | undef
 
 /** LOC summary table: format → language → {withLib, noLib} */
 export function getLOCMatrix(): Record<FmtKey, Record<Lang, { withLib: number; noLib: number; noLibImpractical?: boolean; estimatedLoc?: number }>> {
-  const fmts: FmtKey[] = ['SD-JWT VC', 'JSON-LD VC', 'mdoc']
+  const fmts: FmtKey[] = ['SD-JWT VC', 'JSON-LD VC', 'JSON-LD VC (JCS)', 'mdoc']
   const langs: Lang[]  = ['TypeScript', 'Go', 'Python']
   const result = {} as ReturnType<typeof getLOCMatrix>
   for (const f of fmts) {

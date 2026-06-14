@@ -14,6 +14,8 @@ import crypto from 'node:crypto'
 import { runNodeBenchmarks } from './bench/nodeSpeed.js'
 import { runPythonBenchmark } from './bench/pyRunner.js'
 import { runGoBenchmark } from './bench/goRunner.js'
+import { runNodeComplexity } from './bench/nodeComplexity.js'
+import { runNodeSecurity } from './bench/nodeSecurity.js'
 
 const app = express()
 app.use(cors())
@@ -28,6 +30,8 @@ interface Job {
   nodeResult?: object
   pythonResult?: object
   goResult?: object
+  complexityResult?: object
+  securityResult?: object
   error?: string
   startedAt: number
   finishedAt?: number
@@ -58,11 +62,15 @@ app.post('/api/bench/start', (req, res) => {
     runNode = true,
     runPython = true,
     runGo = true,
+    runComplexity = true,
+    runSecurity = true,
   } = req.body as {
     iterations?: number
     runNode?: boolean
     runPython?: boolean
     runGo?: boolean
+    runComplexity?: boolean
+    runSecurity?: boolean
   }
 
   const jobId = crypto.randomUUID()
@@ -75,7 +83,7 @@ app.post('/api/bench/start', (req, res) => {
   jobs.set(jobId, job)
 
   // Start benchmark async (do not await)
-  void runBenchmark(job, iterations, runNode, runPython, runGo)
+  void runBenchmark(job, iterations, runNode, runPython, runGo, runComplexity, runSecurity)
 
   res.json({ jobId })
 })
@@ -126,6 +134,8 @@ function buildResult(job: Job) {
     nodeResult: job.nodeResult,
     pythonResult: job.pythonResult,
     goResult: job.goResult,
+    complexityResult: job.complexityResult,
+    securityResult: job.securityResult,
     error: job.error,
     durationMs: job.finishedAt ? job.finishedAt - job.startedAt : Date.now() - job.startedAt,
   }
@@ -139,6 +149,8 @@ async function runBenchmark(
   doNode: boolean,
   doPython: boolean,
   doGo: boolean,
+  doComplexity = true,
+  doSecurity = true,
 ) {
   job.status = 'running'
   emitSSE(job.id, 'status', { status: 'running' })
@@ -178,6 +190,30 @@ async function runBenchmark(
       } catch (e) {
         progress(`Go エラー: ${e}`)
         job.goResult = { error: String(e) }
+      }
+    }
+
+    if (doComplexity) {
+      progress('━━ 複雑性分析開始 ━━')
+      try {
+        const cr = await runNodeComplexity(Math.min(iterations, 50), progress)
+        job.complexityResult = cr
+        emitSSE(job.id, 'complexity_done', cr)
+      } catch (e) {
+        progress(`複雑性分析エラー: ${e}`)
+        job.complexityResult = { error: String(e) }
+      }
+    }
+
+    if (doSecurity) {
+      progress('━━ セキュリティテスト開始 ━━')
+      try {
+        const sr = await runNodeSecurity(progress)
+        job.securityResult = sr
+        emitSSE(job.id, 'security_done', sr)
+      } catch (e) {
+        progress(`セキュリティテストエラー: ${e}`)
+        job.securityResult = { error: String(e) }
       }
     }
 

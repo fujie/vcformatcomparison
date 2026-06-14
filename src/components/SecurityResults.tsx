@@ -1,7 +1,13 @@
 import type { SecurityTest, Severity } from '../benchmarks/normalizationSecurity'
 import type { FormatName } from '../benchmarks/signatureSpeed'
+import type { BenchMode, BackendJobResult, BackendSecurityTest } from '../types/backendResult'
+import { isBackendSecurityArray } from '../types/backendResult'
 
-interface Props { results: SecurityTest[] }
+interface Props {
+  results: SecurityTest[] | null
+  benchMode?: BenchMode
+  backendResult?: BackendJobResult | null
+}
 
 const SEVERITY_CONFIG: Record<Severity, { label: string; color: string; bg: string; border: string }> = {
   critical: { label: 'CRITICAL', color: '#fca5a5', bg: '#7f1d1d', border: '#dc2626' },
@@ -34,15 +40,32 @@ const CATEGORY_LABELS: Record<string, string> = {
   CborMalleability: 'CBORマリアビリティ',
 }
 
-export function SecurityResults({ results }: Props) {
-  const vulnerableCount = results.filter((r) => r.result === 'vulnerable').length
-  const mitigatedCount  = results.filter((r) => r.result === 'mitigated').length
-  const partialCount    = results.filter((r) => r.result === 'partial').length
+export function SecurityResults({ results, benchMode = 'frontend', backendResult }: Props) {
+  // Backend mode: use backend security results (same shape, compatible)
+  const raw = backendResult?.securityResult
+  const effectiveResults: (SecurityTest | BackendSecurityTest)[] | null =
+    benchMode === 'backend'
+      ? isBackendSecurityArray(raw) ? raw : null
+      : results
+
+  if (!effectiveResults || effectiveResults.length === 0) {
+    return (
+      <div style={{ color: '#94a3b8', padding: 32 }}>
+        {benchMode === 'backend'
+          ? 'バックエンドセキュリティテストデータなし — バックエンド計測を実行してください'
+          : 'セキュリティテスト結果なし'}
+      </div>
+    )
+  }
+
+  const vulnerableCount = effectiveResults.filter((r) => r.result === 'vulnerable').length
+  const mitigatedCount  = effectiveResults.filter((r) => r.result === 'mitigated').length
+  const partialCount    = effectiveResults.filter((r) => r.result === 'partial').length
 
   const formats: FormatName[] = ['SD-JWT VC', 'JSON-LD VC', 'mdoc']
   const riskByFormat = Object.fromEntries(
     formats.map((f) => {
-      const fmtResults = results.filter((r) => r.format === f)
+      const fmtResults = effectiveResults.filter((r) => r.format === f)
       const risky = fmtResults.filter((r) => r.result === 'vulnerable' || r.result === 'partial').length
       return [f, { risky, total: fmtResults.length }]
     })
@@ -94,7 +117,7 @@ export function SecurityResults({ results }: Props) {
 
       {/* Test cards */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {results.map((test) => {
+        {effectiveResults.map((test) => {
           const sev = SEVERITY_CONFIG[test.severity]
           const res = RESULT_CONFIG[test.result]
           const fmtColor = FORMAT_COLORS[test.format]
@@ -155,7 +178,7 @@ export function SecurityResults({ results }: Props) {
           </thead>
           <tbody>
             {Object.entries(CATEGORY_LABELS).map(([cat, label]) => {
-              const byFormat = (f: string) => results.find((r) => r.category === cat && r.format === f)
+              const byFormat = (f: string) => effectiveResults.find((r) => r.category === cat && r.format === f)
               return (
                 <tr key={cat} style={{ borderBottom: '1px solid #1e293b' }}>
                   <td style={{ padding: '7px 10px', color: '#94a3b8' }}>{label}</td>

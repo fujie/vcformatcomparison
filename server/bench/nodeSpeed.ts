@@ -1,6 +1,8 @@
 /**
  * Node.js backend benchmarks — uses process.hrtime.bigint() for nanosecond precision.
- * Covers all 6 combinations: {SD-JWT VC, JSON-LD VC, mdoc} × {withLib, noLib}
+ * Covers all 6 combinations: {SD-JWT VC, JSON-LD VC, JSON-LD VC (JCS), mdoc} × {withLib, noLib}
+ * Plus serialization-only benchmarks (no crypto) for all formats.
+ * Each benchmark collects per-iteration timings and reports full distribution stats.
  */
 
 import crypto from 'node:crypto'
@@ -14,6 +16,16 @@ export interface BenchEntry {
   avgNs: number
   iterations: number
   label: string
+  // Statistical distribution
+  stdDevMs: number
+  stdDevNs: number
+  ci95Ms: number     // 95% confidence interval half-width (±)
+  p50Ms: number
+  p90Ms: number
+  p95Ms: number
+  p99Ms: number
+  minMs: number
+  maxMs: number
 }
 
 export interface NodeBenchResults {
@@ -31,36 +43,52 @@ function b64url(buf: Buffer | Uint8Array): string {
   return Buffer.from(buf).toString('base64url')
 }
 
-function bench(label: string, n: number, fn: () => void): BenchEntry {
-  // warm-up (3 iterations)
-  for (let i = 0; i < 3; i++) fn()
-
-  const start = process.hrtime.bigint()
-  for (let i = 0; i < n; i++) fn()
-  const end = process.hrtime.bigint()
-
-  const totalNs = Number(end - start)
+function computeNsStats(label: string, timingsNs: number[]): BenchEntry {
+  const n = timingsNs.length
+  timingsNs.sort((a, b) => a - b)
+  const totalNs = timingsNs.reduce((s, v) => s + v, 0)
   const avgNs = totalNs / n
-  const avgMs = avgNs / 1_000_000
-  const opsPerSec = 1_000_000_000 / avgNs
+  const variance = timingsNs.reduce((s, v) => s + (v - avgNs) ** 2, 0) / n
+  const stdDevNs = Math.sqrt(variance)
+  const p = (pct: number) => timingsNs[Math.min(Math.floor(n * pct), n - 1)]
+  return {
+    label,
+    iterations: n,
+    opsPerSec:  1e9 / avgNs,
+    avgNs,
+    avgMs:      avgNs / 1e6,
+    stdDevNs,
+    stdDevMs:   stdDevNs / 1e6,
+    ci95Ms:     1.96 * (stdDevNs / 1e6) / Math.sqrt(n),
+    p50Ms:      p(0.50) / 1e6,
+    p90Ms:      p(0.90) / 1e6,
+    p95Ms:      p(0.95) / 1e6,
+    p99Ms:      p(0.99) / 1e6,
+    minMs:      timingsNs[0] / 1e6,
+    maxMs:      timingsNs[n - 1] / 1e6,
+  }
+}
 
-  return { opsPerSec, avgMs, avgNs, iterations: n, label }
+function bench(label: string, n: number, fn: () => void): BenchEntry {
+  for (let i = 0; i < 3; i++) fn()  // warm-up
+  const timings: number[] = new Array(n)
+  for (let i = 0; i < n; i++) {
+    const start = process.hrtime.bigint()
+    fn()
+    timings[i] = Number(process.hrtime.bigint() - start)
+  }
+  return computeNsStats(label, timings)
 }
 
 async function benchAsync(label: string, n: number, fn: () => Promise<void>): Promise<BenchEntry> {
-  // warm-up
-  await fn(); await fn(); await fn()
-
-  const start = process.hrtime.bigint()
-  for (let i = 0; i < n; i++) await fn()
-  const end = process.hrtime.bigint()
-
-  const totalNs = Number(end - start)
-  const avgNs = totalNs / n
-  const avgMs = avgNs / 1_000_000
-  const opsPerSec = 1_000_000_000 / avgNs
-
-  return { opsPerSec, avgMs, avgNs, iterations: n, label }
+  await fn(); await fn(); await fn()  // warm-up
+  const timings: number[] = new Array(n)
+  for (let i = 0; i < n; i++) {
+    const start = process.hrtime.bigint()
+    await fn()
+    timings[i] = Number(process.hrtime.bigint() - start)
+  }
+  return computeNsStats(label, timings)
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -108,46 +136,62 @@ function cborArray(...items: Buffer[]): Buffer {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// SD-JWT VC — no-lib (ECDSA P-256 + manual JWT)
+// Inline URDNA2015 normalization (no-lib, blank-node-free credentials)
+// Produces same output as jsonld.normalize() for simple credentials.
+// ─────────────────────────────────────────────────────────────────
+
+function inlineNormalizeUrdna2015(vc: {
+  issuer: string
+  issuanceDate: string
+  credentialSubject: { id: string; name: string }
+}): Buffer {
+  const s   = '_:c14n0'
+  const sub = `<${vc.credentialSubject.id}>`
+  const quads = [
+    `${sub} <http://schema.org/name> "${vc.credentialSubject.name}" .`,
+    `${s} <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://www.w3.org/2018/credentials#VerifiableCredential> .`,
+    `${s} <https://www.w3.org/2018/credentials#credentialSubject> ${sub} .`,
+    `${s} <https://www.w3.org/2018/credentials#issuanceDate> "${vc.issuanceDate}"^^<http://www.w3.org/2001/XMLSchema#dateTime> .`,
+    `${s} <https://www.w3.org/2018/credentials#issuer> <${vc.issuer}> .`,
+  ]
+  quads.sort()
+  return Buffer.from(quads.join('\n') + '\n', 'utf8')
+}
+
+// Inline RFC 8785 JCS
+function jcsCanonical(v: unknown): string {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v)
+  if (Array.isArray(v)) return '[' + (v as unknown[]).map(jcsCanonical).join(',') + ']'
+  const obj = v as Record<string, unknown>
+  return '{' + Object.keys(obj).sort().map(k => `${JSON.stringify(k)}:${jcsCanonical(obj[k])}`).join(',') + '}'
+}
+
+// ─────────────────────────────────────────────────────────────────
+// SD-JWT VC — no-lib (Ed25519 + manual JWT, same algorithm as withLib)
 // ─────────────────────────────────────────────────────────────────
 
 function benchSdJwtNoLib(n: number): Record<string, BenchEntry> {
-  const { privateKey, publicKey } = crypto.generateKeyPairSync('ec', {
-    namedCurve: 'P-256',
-  })
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519')
 
-  const header = b64url(Buffer.from(JSON.stringify({ alg: 'ES256', typ: 'vc+sd-jwt' })))
+  const header = b64url(Buffer.from(JSON.stringify({ alg: 'EdDSA', crv: 'Ed25519' })))
   const payload = b64url(Buffer.from(JSON.stringify({
     iss: 'https://issuer.example.com',
     vct: 'identity',
     sub: 'did:example:holder',
-    iat: Math.floor(Date.now() / 1000),
   })))
   const sigInput = `${header}.${payload}`
-  let sig = ''
 
   const sign = bench('SD-JWT VC-noLib-sign', n, () => {
-    const raw = crypto.sign('SHA256', Buffer.from(sigInput), {
-      key: privateKey,
-      dsaEncoding: 'ieee-p1363',
-    })
-    sig = b64url(raw)
+    crypto.sign(null, Buffer.from(sigInput), privateKey)
   })
 
-  // produce a valid token for verify
-  const finalSig = crypto.sign('SHA256', Buffer.from(sigInput), {
-    key: privateKey,
-    dsaEncoding: 'ieee-p1363',
-  })
+  const finalSig = crypto.sign(null, Buffer.from(sigInput), privateKey)
   const token = `${sigInput}.${b64url(finalSig)}`
 
   const verify = bench('SD-JWT VC-noLib-verify', n, () => {
     const parts = token.split('.')
     const sigBuf = Buffer.from(parts[2], 'base64url')
-    crypto.verify('SHA256', Buffer.from(`${parts[0]}.${parts[1]}`), {
-      key: publicKey,
-      dsaEncoding: 'ieee-p1363',
-    }, sigBuf)
+    crypto.verify(null, Buffer.from(`${parts[0]}.${parts[1]}`), publicKey, sigBuf)
   })
 
   return { 'SD-JWT VC-noLib-sign': sign, 'SD-JWT VC-noLib-verify': verify }
@@ -202,12 +246,9 @@ function benchMdocNoLib(n: number): Record<string, BenchEntry> {
     ['document_number', 'JP-12345678'],
   ]
 
-  const protHdr = cborMap(cborUint(1), cborNeg(7)) // {alg: -7 (ES256)}
-
-  let sig = Buffer.alloc(64)
+  const protHdr = cborMap(cborUint(1), cborNeg(-7)) // {alg: -7 (ES256)}
 
   const sign = bench('mdoc-noLib-sign', n, () => {
-    // per-element SHA-256 digests
     const digestMap: Buffer[] = []
     for (let i = 0; i < mdocFields.length; i++) {
       const [k, v] = mdocFields[i]
@@ -219,19 +260,17 @@ function benchMdocNoLib(n: number): Record<string, BenchEntry> {
       const d = crypto.createHash('sha256').update(item).digest()
       digestMap.push(cborUint(i), cborBytes(d))
     }
-    // MSO payload (simplified)
     const msoPayload = cborMap(
       cborText('docType'), cborText('org.iso.18013.5.1.mDL'),
       cborText('valueDigests'), cborMap(...digestMap),
     )
-    // COSE Sig_Structure
     const sigStruct = cborArray(
       cborText('Signature1'),
       cborBytes(protHdr),
       cborBytes(Buffer.alloc(0)),
       cborBytes(msoPayload),
     )
-    sig = crypto.sign('SHA256', sigStruct, {
+    crypto.sign('SHA256', sigStruct, {
       key: privateKey,
       dsaEncoding: 'ieee-p1363',
     })
@@ -279,7 +318,6 @@ function benchMdocNoLib(n: number): Record<string, BenchEntry> {
 // ─────────────────────────────────────────────────────────────────
 
 async function benchMdocWithLib(n: number): Promise<Record<string, BenchEntry>> {
-  // Dynamic import so server startup doesn't fail if package missing
   const { encode } = await import('cbor-x')
 
   const { privateKey, publicKey } = crypto.generateKeyPairSync('ec', {
@@ -306,7 +344,6 @@ async function benchMdocWithLib(n: number): Promise<Record<string, BenchEntry>> 
     crypto.sign('SHA256', sigStruct, { key: privateKey, dsaEncoding: 'ieee-p1363' })
   })
 
-  // build static verify data
   const digestMap2 = new Map<number, Uint8Array>()
   let id2 = 0
   for (const [k, v] of Object.entries(mdocFields)) {
@@ -334,23 +371,21 @@ async function benchJsonLdWithLib(n: number): Promise<Record<string, BenchEntry>
 
   const { privateKey } = crypto.generateKeyPairSync('ed25519')
 
-  // Inline context to avoid network
-  const inlineCtx = {
-    '@context': {
-      '@version': 1.1,
-      VerifiableCredential: 'https://www.w3.org/2018/credentials#VerifiableCredential',
-      issuer: 'https://www.w3.org/2018/credentials#issuer',
-      credentialSubject: 'https://www.w3.org/2018/credentials#credentialSubject',
-      id: '@id',
-    },
-  }
   const vcDoc = {
-    '@context': [inlineCtx['@context']],
-    type: 'VerifiableCredential',
-    issuer: 'https://example.com',
-    credentialSubject: {
-      id: 'did:example:1',
-    },
+    '@context': [{
+      '@version': 1.1,
+      'type': '@type',
+      'id': '@id',
+      'VerifiableCredential': 'https://www.w3.org/2018/credentials#VerifiableCredential',
+      'issuer': { '@id': 'https://www.w3.org/2018/credentials#issuer', '@type': '@id' },
+      'issuanceDate': { '@id': 'https://www.w3.org/2018/credentials#issuanceDate', '@type': 'http://www.w3.org/2001/XMLSchema#dateTime' },
+      'credentialSubject': 'https://www.w3.org/2018/credentials#credentialSubject',
+      'name': 'http://schema.org/name',
+    }],
+    'type': 'VerifiableCredential',
+    'issuer': 'https://example.com',
+    'issuanceDate': '2024-01-01T00:00:00Z',
+    'credentialSubject': { 'id': 'did:example:1', 'name': 'Taro Yamada' },
   }
 
   const sign = await benchAsync('JSON-LD VC-withLib-sign', n, async () => {
@@ -363,7 +398,6 @@ async function benchJsonLdWithLib(n: number): Promise<Record<string, BenchEntry>
     crypto.sign(null, hash, privateKey)
   })
 
-  // For verify: run once to get the sig
   const norm0 = await (jsonld as any).normalize(vcDoc, {
     algorithm: 'URDNA2015', format: 'application/n-quads', safe: false,
   }) as string
@@ -382,31 +416,235 @@ async function benchJsonLdWithLib(n: number): Promise<Record<string, BenchEntry>
 }
 
 // ─────────────────────────────────────────────────────────────────
-// JSON-LD VC — no-lib (manual N-Quads + Ed25519, no jsonld package)
+// JSON-LD VC — no-lib (inline N-Quads normalization + Ed25519)
 // ─────────────────────────────────────────────────────────────────
 
 function benchJsonLdNoLib(n: number): Record<string, BenchEntry> {
   const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519')
 
-  // Simulate URDNA2015 output (deterministic NQ string) without the package
-  const nquad = `<https://example.com> <https://www.w3.org/2018/credentials#issuer> "https://example.com" .\n`
-  const nqBytes = Buffer.from(nquad, 'utf8')
+  const vc = {
+    issuer: 'https://example.com',
+    issuanceDate: '2024-01-01T00:00:00Z',
+    credentialSubject: { id: 'did:example:1', name: 'Taro Yamada' },
+  }
 
   const sign = bench('JSON-LD VC-noLib-sign', n, () => {
+    const nqBytes = inlineNormalizeUrdna2015(vc)
     const hash = crypto.createHash('sha256').update(nqBytes).digest()
     crypto.sign(null, hash, privateKey)
   })
 
-  const hash0 = crypto.createHash('sha256').update(nqBytes).digest()
+  const nq0 = inlineNormalizeUrdna2015(vc)
+  const hash0 = crypto.createHash('sha256').update(nq0).digest()
   const sig0 = crypto.sign(null, hash0, privateKey)
   const pub0 = crypto.createPublicKey(privateKey)
 
   const verify = bench('JSON-LD VC-noLib-verify', n, () => {
+    const nqBytes = inlineNormalizeUrdna2015(vc)
     const hash = crypto.createHash('sha256').update(nqBytes).digest()
     crypto.verify(null, hash, pub0, sig0)
   })
 
   return { 'JSON-LD VC-noLib-sign': sign, 'JSON-LD VC-noLib-verify': verify }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// JSON-LD VC (JCS) — with-lib (canonicalize / RFC 8785 + Ed25519)
+// ─────────────────────────────────────────────────────────────────
+
+async function benchJsonLdJcsWithLib(n: number): Promise<Record<string, BenchEntry>> {
+  const { canonicalize } = await import('canonicalize')
+
+  const { privateKey } = crypto.generateKeyPairSync('ed25519')
+
+  const vcDoc = {
+    '@context': {
+      '@version': 1.1, 'id': '@id', 'type': '@type',
+      'VerifiableCredential': 'https://www.w3.org/2018/credentials#VerifiableCredential',
+      'issuer': { '@id': 'https://www.w3.org/2018/credentials#issuer', '@type': '@id' },
+      'issuanceDate': { '@id': 'https://www.w3.org/2018/credentials#issuanceDate', '@type': 'http://www.w3.org/2001/XMLSchema#dateTime' },
+      'credentialSubject': 'https://www.w3.org/2018/credentials#credentialSubject',
+      'name': 'http://schema.org/name',
+    },
+    'type': 'VerifiableCredential',
+    'issuer': 'https://example.com',
+    'issuanceDate': '2024-01-01T00:00:00Z',
+    'credentialSubject': { 'id': 'did:example:1', 'name': 'Taro Yamada' },
+  }
+
+  const sign = bench('JSON-LD VC (JCS)-withLib-sign', n, () => {
+    const canonical = canonicalize(vcDoc)!
+    const hash = crypto.createHash('sha256').update(canonical).digest()
+    crypto.sign(null, hash, privateKey)
+  })
+
+  const canonical0 = canonicalize(vcDoc)!
+  const hash0 = crypto.createHash('sha256').update(canonical0).digest()
+  const sig0 = crypto.sign(null, hash0, privateKey)
+  const pub0 = crypto.createPublicKey(privateKey)
+
+  const verify = bench('JSON-LD VC (JCS)-withLib-verify', n, () => {
+    const canonical = canonicalize(vcDoc)!
+    const hash = crypto.createHash('sha256').update(canonical).digest()
+    crypto.verify(null, hash, pub0, sig0)
+  })
+
+  return {
+    'JSON-LD VC (JCS)-withLib-sign': sign,
+    'JSON-LD VC (JCS)-withLib-verify': verify,
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// JSON-LD VC (JCS) — no-lib (inline RFC 8785 + Ed25519)
+// ─────────────────────────────────────────────────────────────────
+
+function benchJsonLdJcsNoLib(n: number): Record<string, BenchEntry> {
+  const { privateKey } = crypto.generateKeyPairSync('ed25519')
+
+  const vcDoc = {
+    '@context': {
+      '@version': 1.1, 'id': '@id', 'type': '@type',
+      'VerifiableCredential': 'https://www.w3.org/2018/credentials#VerifiableCredential',
+      'issuer': { '@id': 'https://www.w3.org/2018/credentials#issuer', '@type': '@id' },
+      'issuanceDate': { '@id': 'https://www.w3.org/2018/credentials#issuanceDate', '@type': 'http://www.w3.org/2001/XMLSchema#dateTime' },
+      'credentialSubject': 'https://www.w3.org/2018/credentials#credentialSubject',
+      'name': 'http://schema.org/name',
+    },
+    'type': 'VerifiableCredential',
+    'issuer': 'https://example.com',
+    'issuanceDate': '2024-01-01T00:00:00Z',
+    'credentialSubject': { 'id': 'did:example:1', 'name': 'Taro Yamada' },
+  }
+
+  const sign = bench('JSON-LD VC (JCS)-noLib-sign', n, () => {
+    const canonical = jcsCanonical(vcDoc)
+    const hash = crypto.createHash('sha256').update(canonical).digest()
+    crypto.sign(null, hash, privateKey)
+  })
+
+  const canonical0 = jcsCanonical(vcDoc)
+  const hash0 = crypto.createHash('sha256').update(canonical0).digest()
+  const sig0 = crypto.sign(null, hash0, privateKey)
+  const pub0 = crypto.createPublicKey(privateKey)
+
+  const verify = bench('JSON-LD VC (JCS)-noLib-verify', n, () => {
+    const canonical = jcsCanonical(vcDoc)
+    const hash = crypto.createHash('sha256').update(canonical).digest()
+    crypto.verify(null, hash, pub0, sig0)
+  })
+
+  return {
+    'JSON-LD VC (JCS)-noLib-sign': sign,
+    'JSON-LD VC (JCS)-noLib-verify': verify,
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Serialization-only benchmarks (no crypto) — measures pure
+// encode/decode/normalize overhead for each format.
+// Key pattern: "${format}-serial-${operation}"
+// ─────────────────────────────────────────────────────────────────
+
+async function benchSerialize(n: number): Promise<Record<string, BenchEntry>> {
+  const results: Record<string, BenchEntry> = {}
+
+  // ── SD-JWT VC: JSON.stringify + base64url (no signing)
+  const sdPayload = {
+    iss: 'https://issuer.example.com', iat: 0, exp: 3600,
+    vct: 'https://credentials.example.com/identity',
+    sub: 'did:example:holder123',
+    given_name: 'Taro', family_name: 'Yamada', birthdate: '1990-01-01',
+  }
+  const sdHeader = Buffer.from(JSON.stringify({ alg: 'EdDSA', typ: 'vc+sd-jwt' })).toString('base64url')
+
+  results['SD-JWT VC-serial-encode'] = bench('SD-JWT VC-serial-encode', n, () => {
+    const p = Buffer.from(JSON.stringify({ ...sdPayload, iat: Date.now() })).toString('base64url')
+    `${sdHeader}.${p}.AAABBB`
+  })
+
+  const sdToken = `${sdHeader}.${Buffer.from(JSON.stringify(sdPayload)).toString('base64url')}.AAABBB`
+  results['SD-JWT VC-serial-decode'] = bench('SD-JWT VC-serial-decode', n, () => {
+    const [h64, p64] = sdToken.split('.')
+    JSON.parse(Buffer.from(h64, 'base64url').toString())
+    JSON.parse(Buffer.from(p64, 'base64url').toString())
+  })
+
+  // ── JSON-LD VC: JSON.stringify / JSON.parse (raw JSON, no normalization)
+  const jldDoc = {
+    '@context': { '@version': 1.1, 'id': '@id', 'type': '@type',
+      'VerifiableCredential': 'https://www.w3.org/2018/credentials#VerifiableCredential',
+      'issuer': { '@id': 'https://www.w3.org/2018/credentials#issuer', '@type': '@id' },
+      'issuanceDate': { '@id': 'https://www.w3.org/2018/credentials#issuanceDate', '@type': 'http://www.w3.org/2001/XMLSchema#dateTime' },
+      'credentialSubject': 'https://www.w3.org/2018/credentials#credentialSubject',
+      'name': 'http://schema.org/name' },
+    type: 'VerifiableCredential',
+    issuer: 'https://example.com',
+    issuanceDate: '2024-01-01T00:00:00Z',
+    credentialSubject: { id: 'did:example:1', name: 'Taro Yamada' },
+  }
+  const jldStr = JSON.stringify(jldDoc)
+
+  results['JSON-LD VC-serial-encode'] = bench('JSON-LD VC-serial-encode', n, () => {
+    JSON.stringify(jldDoc)
+  })
+  results['JSON-LD VC-serial-decode'] = bench('JSON-LD VC-serial-decode', n, () => {
+    JSON.parse(jldStr)
+  })
+
+  // ── JSON-LD VC URDNA2015 normalize (inline, no library)
+  const vcForNorm = { issuer: 'https://example.com', issuanceDate: '2024-01-01T00:00:00Z',
+    credentialSubject: { id: 'did:example:1', name: 'Taro Yamada' } }
+
+  results['JSON-LD VC-serial-normalize'] = bench('JSON-LD VC-serial-normalize', n, () => {
+    inlineNormalizeUrdna2015(vcForNorm)
+  })
+
+  // ── JSON-LD VC URDNA2015 normalize with jsonld library (slower)
+  try {
+    const jsonld = (await import('jsonld')).default
+    const vcDocWithCtx = { ...jldDoc }
+    const nJl = Math.max(Math.floor(n / 5), 10)
+    results['JSON-LD VC-serial-normalize-withLib'] = await benchAsync('JSON-LD VC-serial-normalize-withLib', nJl, async () => {
+      await (jsonld as any).normalize(vcDocWithCtx, {
+        algorithm: 'URDNA2015', format: 'application/n-quads', safe: false,
+      })
+    })
+  } catch { /* jsonld not available */ }
+
+  // ── JSON-LD VC (JCS): JCS canonicalize (inline RFC 8785)
+  results['JSON-LD VC (JCS)-serial-canonicalize'] = bench('JSON-LD VC (JCS)-serial-canonicalize', n, () => {
+    jcsCanonical(jldDoc)
+  })
+
+  // ── mdoc: manual CBOR encode (no signing, no hashing)
+  const mdocFields: [string, string][] = [
+    ['family_name','Yamada'],['given_name','Taro'],
+    ['birth_date','1990-01-01'],['issue_date','2024-01-01'],
+    ['expiry_date','2029-01-01'],['issuing_country','JP'],
+    ['document_number','JP-12345678'],
+  ]
+
+  results['mdoc-serial-encode'] = bench('mdoc-serial-encode', n, () => {
+    const items: Buffer[] = mdocFields.map(([k, v], i) =>
+      cborMap(cborUint(0), cborUint(i), cborText('elementIdentifier'), cborText(k), cborText('elementValue'), cborText(v))
+    )
+    cborMap(cborText('docType'), cborText('org.iso.18013.5.1.mDL'), cborText('items'), ...items)
+  })
+
+  // ── mdoc with-lib: cbor-x encode
+  try {
+    const { encode, decode } = await import('cbor-x')
+    const mdocLibDoc = {
+      docType: 'org.iso.18013.5.1.mDL',
+      items: mdocFields.map(([k, v], i) => ({ digestID: i, elementIdentifier: k, elementValue: v })),
+    }
+    const mdocEncoded = encode(mdocLibDoc)
+    results['mdoc-withLib-serial-encode'] = bench('mdoc-withLib-serial-encode', n, () => { encode(mdocLibDoc) })
+    results['mdoc-withLib-serial-decode'] = bench('mdoc-withLib-serial-decode', n, () => { decode(mdocEncoded) })
+  } catch { /* cbor-x not available */ }
+
+  return results
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -446,9 +684,23 @@ export async function runNodeBenchmarks(
 
   onProgress('JSON-LD VC (jsonld URDNA2015) 計測中...')
   try {
-    Object.assign(results, await benchJsonLdWithLib(N))
+    Object.assign(results, await benchJsonLdWithLib(Math.max(Math.floor(N / 5), 10)))
   } catch (e) {
     errors['JSON-LD VC-withLib'] = String(e)
+  }
+
+  onProgress('JSON-LD VC (JCS / ライブラリあり) 計測中...')
+  try {
+    Object.assign(results, await benchJsonLdJcsWithLib(N))
+  } catch (e) {
+    errors['JSON-LD VC (JCS)-withLib'] = String(e)
+  }
+
+  onProgress('JSON-LD VC (JCS / ライブラリなし) 計測中...')
+  try {
+    Object.assign(results, benchJsonLdJcsNoLib(N))
+  } catch (e) {
+    errors['JSON-LD VC (JCS)-noLib'] = String(e)
   }
 
   onProgress('mdoc (ライブラリなし / 手書き CBOR) 計測中...')
@@ -463,6 +715,13 @@ export async function runNodeBenchmarks(
     Object.assign(results, await benchMdocWithLib(N))
   } catch (e) {
     errors['mdoc-withLib'] = String(e)
+  }
+
+  onProgress('シリアライズ速度計測中（暗号なし）...')
+  try {
+    Object.assign(results, await benchSerialize(N))
+  } catch (e) {
+    errors['serial'] = String(e)
   }
 
   onProgress('完了')

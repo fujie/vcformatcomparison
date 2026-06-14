@@ -3,10 +3,13 @@ import type { SpeedResult } from '../benchmarks/signatureSpeed'
 import type { ComplexityMetric } from '../benchmarks/deserializationComplexity'
 import type { SecurityTest } from '../benchmarks/normalizationSecurity'
 import type { NoLibResult, SerialBenchResult } from '../benchmarks/noLibrary'
+import type { ScalingBenchResults } from '../benchmarks/scalingBenchmarks'
 import type { RefValues } from '../data/referenceValues'
 import type { PyBenchResults } from '../lib/pyodideRunner'
 import type { GoBenchResults } from '../lib/goRunner'
 import { GO_BENCH_SOURCE, PYTHON_BENCH_SOURCE, TS_SPEED_SOURCE, TS_NOLIB_SOURCE, TS_SECURITY_SOURCE } from '../data/benchmarkSources'
+import type { BenchMode, BackendJobResult } from '../types/backendResult'
+import { isBackendComplexityArray, isBackendSecurityArray } from '../types/backendResult'
 
 interface Props {
   speedResults:      SpeedResult[]      | null
@@ -14,10 +17,13 @@ interface Props {
   securityResults:   SecurityTest[]     | null
   noLibResults:      NoLibResult[]      | null
   serialResults:     SerialBenchResult[]| null
+  scalingResults?:   ScalingBenchResults | null
   iterations:        number
   refValues:         RefValues
   pythonResults:     PyBenchResults     | null
   goResults:         GoBenchResults     | null
+  benchMode?:        BenchMode
+  backendResult?:    BackendJobResult   | null
 }
 
 // ── Environment detection ─────────────────────────────────────
@@ -96,19 +102,32 @@ function copyToClipboard(text: string): Promise<void> {
 // ── JSON export ──────────────────────────────────────────────
 
 function buildJson(props: Props, timestamp: string): string {
+  const isBackend = props.benchMode === 'backend'
   return JSON.stringify({
     exportedAt: timestamp,
+    benchMode: props.benchMode ?? 'frontend',
     environment: {
       userAgent:  navigator.userAgent,
       platform:   navigator.platform,
       iterations: props.iterations,
       libraries:  ['jose@6.x', '@noble/ed25519@2.x', 'jsonld@8.x', 'cbor-x@1.x', 'recharts@2.x'],
     },
-    speedResults:      props.speedResults      ?? [],
-    complexityResults: props.complexityResults ?? [],
-    securityResults:   props.securityResults   ?? [],
-    noLibResults:      props.noLibResults       ?? [],
-    serialResults:     props.serialResults     ?? [],
+    ...(isBackend ? {
+      backendSpeedResults: {
+        nodeJs:  props.backendResult?.nodeResult  ?? null,
+        python:  props.backendResult?.pythonResult ?? null,
+        go:      props.backendResult?.goResult     ?? null,
+      },
+      complexityResults: props.backendResult?.complexityResult ?? [],
+      securityResults:   props.backendResult?.securityResult   ?? [],
+    } : {
+      speedResults:      props.speedResults      ?? [],
+      complexityResults: props.complexityResults ?? [],
+      securityResults:   props.securityResults   ?? [],
+      noLibResults:      props.noLibResults       ?? [],
+      serialResults:     props.serialResults     ?? [],
+    }),
+    scalingResults: props.scalingResults ?? null,
   }, null, 2)
 }
 
@@ -125,12 +144,40 @@ function buildCsv(props: Props, timestamp: string): string {
   lines.push('')
 
   // 1. 署名速度
-  row('## 署名検証速度')
-  row('フォーマット', '操作', '反復数', '合計(ms)', '平均(ms)', 'ops/sec')
-  for (const r of props.speedResults ?? []) {
-    row(r.format, r.operation, r.iterations, fmt(r.totalMs, 1), fmt(r.avgMs, 3), fmt(r.opsPerSec, 1))
+  if (props.benchMode === 'backend' && props.backendResult) {
+    const be = props.backendResult
+    for (const [lang, res] of [['Node.js', be.nodeResult], ['Python', be.pythonResult], ['Go', be.goResult]] as const) {
+      const entries = Object.entries(res?.results ?? {})
+      if (entries.length === 0) continue
+      row(`## 署名検証速度 — ${lang} (process.hrtime.bigint / perf_counter_ns)`)
+      row('キー', '反復数', '平均(ms)', 'ops/sec', '平均(ns)', 'σ(ms)', '95%CI(ms)', 'p50(ms)', 'p90(ms)', 'p95(ms)', 'p99(ms)', 'min(ms)', 'max(ms)')
+      for (const [key, e] of entries) {
+        row(
+          key, e.iterations, fmt(e.avgMs, 3), fmt(e.opsPerSec, 1),
+          e.avgNs !== undefined ? e.avgNs.toFixed(0) : '—',
+          fmt(e.stdDevMs, 4),
+          e.ci95Ms != null ? `±${e.ci95Ms.toFixed(4)}` : '—',
+          fmt(e.p50Ms, 3), fmt(e.p90Ms, 3), fmt(e.p95Ms, 3), fmt(e.p99Ms, 3),
+          fmt(e.minMs, 3), fmt(e.maxMs, 3),
+        )
+      }
+      lines.push('')
+    }
+  } else {
+    row('## 署名検証速度（統計分布）')
+    row('フォーマット', '操作', '反復数', '平均(ms)', 'ops/sec', 'σ(ms)', '95%CI(ms)', 'p50(ms)', 'p90(ms)', 'p95(ms)', 'p99(ms)', 'min(ms)', 'max(ms)')
+    for (const r of props.speedResults ?? []) {
+      row(
+        r.format, r.operation, r.iterations,
+        fmt(r.avgMs, 3), fmt(r.opsPerSec, 1),
+        fmt(r.stdDevMs, 4),
+        r.ci95Ms != null ? `±${r.ci95Ms.toFixed(4)}` : '—',
+        fmt(r.p50Ms, 3), fmt(r.p90Ms, 3), fmt(r.p95Ms, 3), fmt(r.p99Ms, 3),
+        fmt(r.minMs, 3), fmt(r.maxMs, 3),
+      )
+    }
+    lines.push('')
   }
-  lines.push('')
 
   // 2. 複雑性
   row('## デシリアライズ複雑性')
@@ -152,20 +199,27 @@ function buildCsv(props: Props, timestamp: string): string {
 
   // 4. ライブラリなし vs あり（全言語）
   row('## ライブラリなし vs あり（全言語）')
-  row('フォーマット', '言語', 'モード', '操作', '反復数/参考', '平均(ms)', 'ops/sec', '備考')
+  row('フォーマット', '言語', 'モード', '操作', '反復数/参考', '平均(ms)', 'ops/sec', 'σ(ms)', '95%CI(ms)', 'p50(ms)', 'p95(ms)', 'p99(ms)', '備考')
   for (const r of props.noLibResults ?? []) {
-    row(r.format, 'TypeScript', r.mode === 'withLib' ? 'ライブラリあり' : 'ライブラリなし',
-        r.operation, r.iterations, fmt(r.avgMs, 3), fmt(r.opsPerSec, 1), '実測値')
+    row(
+      r.format, 'TypeScript', r.mode === 'withLib' ? 'ライブラリあり' : 'ライブラリなし',
+      r.operation, r.iterations, fmt(r.avgMs, 3), fmt(r.opsPerSec, 1),
+      fmt(r.stdDevMs, 4),
+      r.ci95Ms != null ? `±${r.ci95Ms.toFixed(4)}` : '—',
+      fmt(r.p50Ms, 3), fmt(r.p95Ms, 3), fmt(r.p99Ms, 3),
+      '実測値',
+    )
   }
   for (const op of ['sign', 'verify'] as const) {
     const r = props.speedResults?.find(x => x.format === 'JSON-LD VC' && x.operation === op)
     if (r) row('JSON-LD VC', 'TypeScript', 'ライブラリあり', op, r.iterations, fmt(r.avgMs, 3), fmt(r.opsPerSec, 1), '実測値')
+    const rJcs = props.speedResults?.find(x => x.format === 'JSON-LD VC (JCS)' && x.operation === op)
+    if (rJcs) row('JSON-LD VC (JCS)', 'TypeScript', 'ライブラリあり', op, rJcs.iterations, fmt(rJcs.avgMs, 3), fmt(rJcs.opsPerSec, 1), '実測値')
   }
-  const _fmts2 = ['SD-JWT VC', 'JSON-LD VC', 'mdoc'] as const
+  const _fmts2 = ['SD-JWT VC', 'JSON-LD VC', 'JSON-LD VC (JCS)', 'mdoc'] as const
   const _modes2 = ['withLib', 'noLib'] as const
   for (const f of _fmts2) {
     for (const m of _modes2) {
-      if (f === 'JSON-LD VC' && m === 'noLib') continue
       for (const op of ['sign', 'verify'] as const) {
         const ref = props.refValues[`${f}-${m}-${op}`]
         if (ref) {
@@ -189,10 +243,53 @@ function buildCsv(props: Props, timestamp: string): string {
   lines.push('')
 
   // 5. シリアライズ速度
-  row('## シリアライズ速度（暗号なし）')
-  row('フォーマット', '操作', '反復数', '平均(ms)', 'ops/sec', 'ペイロード(bytes)')
+  row('## シリアライズ速度（暗号なし、統計分布）')
+  row('フォーマット', '操作/ラベル', '反復数', '平均(ms)', 'ops/sec', 'σ(ms)', '95%CI(ms)', 'p50(ms)', 'p95(ms)', 'p99(ms)', 'min(ms)', 'max(ms)', 'ペイロード(bytes)')
   for (const r of props.serialResults ?? []) {
-    row(r.format, r.operation, r.iterations, fmt(r.avgMs, 3), fmt(r.opsPerSec, 1), r.payloadSizeBytes)
+    row(
+      r.format, r.label ?? r.operation, r.iterations,
+      fmt(r.avgMs, 4), fmt(r.opsPerSec, 1),
+      fmt(r.stdDevMs, 5),
+      r.ci95Ms != null ? `±${r.ci95Ms.toFixed(5)}` : '—',
+      fmt(r.p50Ms, 4), fmt(r.p95Ms, 4), fmt(r.p99Ms, 4),
+      fmt(r.minMs, 4), fmt(r.maxMs, 4),
+      r.payloadSizeBytes,
+    )
+  }
+
+  if (props.scalingResults) {
+    const sr = props.scalingResults
+    row('')
+    row('## 属性数スケーリング')
+    row('フォーマット', '属性数', '反復数', '平均(ms)', 'ops/sec', 'σ(ms)', 'p95(ms)', 'size(B)')
+    for (const r of sr.attrScaling) {
+      row(r.format, r.attrCount ?? '—', r.iterations, fmt(r.avgMs, 4), fmt(r.opsPerSec, 1), fmt(r.stdDevMs, 5), fmt(r.p95Ms, 4), r.payloadSizeBytes ?? '—')
+    }
+    row('')
+    row('## コンテキストローダー比較')
+    row('ラベル', '反復数', '平均(ms)', 'p95(ms)', 'σ(ms)')
+    for (const r of sr.contextLoader) {
+      row(r.label, r.iterations, fmt(r.avgMs, 2), fmt(r.p95Ms, 2), fmt(r.stdDevMs, 3))
+    }
+    row('')
+    row('## URDNA2015 call limit')
+    row('グラフ', 'タイムアウト', '計測(ms)', '状態')
+    for (const r of sr.callLimit) {
+      row(r.label, r.condition === 'with' ? 'あり' : 'なし', fmt(r.avgMs, 1), r.timedOut ? '保護/TO' : '完了')
+    }
+    row('')
+    row('## 選択的開示')
+    row('フォーマット', '開示数', '反復数', '平均(ms)', 'p50(ms)', 'p95(ms)', 'σ(ms)', '備考')
+    for (const r of sr.selectiveDisc) {
+      const note = r.format === 'JSON-LD VC' ? 'URDNA2015再正規化' : r.format === 'JSON-LD VC (JCS)' ? 'JCS再正規化' : r.format === 'SD-JWT VC' ? 'SHA-256ハッシュ' : 'CBORサブセット'
+      row(r.format, r.disclosedCount ?? '—', r.iterations, fmt(r.avgMs, 4), fmt(r.p50Ms, 4), fmt(r.p95Ms, 4), fmt(r.stdDevMs, 5), note)
+    }
+    row('')
+    row('## Ed25519 統一ベンチマーク')
+    row('フォーマット', '操作', '反復数', '平均(ms)', 'ops/sec', 'p95(ms)')
+    for (const r of sr.unifiedEd25519) {
+      row(r.format, r.condition ?? '—', r.iterations, fmt(r.avgMs, 3), fmt(r.opsPerSec, 1), fmt(r.p95Ms, 3))
+    }
   }
 
   return lines.join('\n')
@@ -216,12 +313,38 @@ function buildMarkdown(props: Props, timestamp: string): string {
   lines.push(tableRow('使用ライブラリ', 'jose@6.x / @noble/ed25519@2.x / jsonld@8.x / cbor-x@1.x'))
   lines.push('')
 
-  if (props.speedResults?.length) {
-    lines.push('## ⚡ 署名検証速度')
-    lines.push(tableRow('フォーマット', '操作', '平均(ms)', 'ops/sec'))
-    lines.push(sep(4))
+  if (props.benchMode === 'backend' && props.backendResult) {
+    const be = props.backendResult
+    for (const [lang, res] of [['Node.js', be.nodeResult], ['Python', be.pythonResult], ['Go', be.goResult]] as const) {
+      const entries = Object.entries(res?.results ?? {})
+      if (entries.length === 0) continue
+      lines.push(`## ⚡ 署名検証速度 — ${lang} (process.hrtime.bigint / perf_counter_ns)`)
+      lines.push(tableRow('キー', '反復数', '平均(ms)', 'ops/sec', '平均(ns)', 'σ(ms)', '95%CI(ms)', 'p50(ms)', 'p90(ms)', 'p95(ms)', 'p99(ms)', 'min(ms)', 'max(ms)'))
+      lines.push(sep(13))
+      for (const [key, e] of entries) {
+        lines.push(tableRow(
+          key, e.iterations, fmt(e.avgMs, 3), fmt(e.opsPerSec, 1),
+          e.avgNs !== undefined ? e.avgNs.toFixed(0) : '—',
+          fmt(e.stdDevMs, 4),
+          e.ci95Ms != null ? `±${e.ci95Ms.toFixed(4)}` : '—',
+          fmt(e.p50Ms, 3), fmt(e.p90Ms, 3), fmt(e.p95Ms, 3), fmt(e.p99Ms, 3),
+          fmt(e.minMs, 3), fmt(e.maxMs, 3),
+        ))
+      }
+      lines.push('')
+    }
+  } else if (props.speedResults?.length) {
+    lines.push('## ⚡ 署名検証速度（統計分布）')
+    lines.push(tableRow('フォーマット', '操作', '平均(ms)', 'ops/sec', 'σ(ms)', '95%CI(ms)', 'p50(ms)', 'p90(ms)', 'p95(ms)', 'p99(ms)', 'min(ms)', 'max(ms)'))
+    lines.push(sep(12))
     for (const r of props.speedResults) {
-      lines.push(tableRow(r.format, r.operation, fmt(r.avgMs, 3), fmt(r.opsPerSec, 1)))
+      lines.push(tableRow(
+        r.format, r.operation, fmt(r.avgMs, 3), fmt(r.opsPerSec, 1),
+        fmt(r.stdDevMs, 4),
+        r.ci95Ms != null ? `±${r.ci95Ms.toFixed(4)}` : '—',
+        fmt(r.p50Ms, 3), fmt(r.p90Ms, 3), fmt(r.p95Ms, 3), fmt(r.p99Ms, 3),
+        fmt(r.minMs, 3), fmt(r.maxMs, 3),
+      ))
     }
     lines.push('')
   }
@@ -250,20 +373,27 @@ function buildMarkdown(props: Props, timestamp: string): string {
 
   {
     lines.push('## 🧪 ライブラリなし vs あり — 言語別比較')
-    lines.push(tableRow('フォーマット', '言語', 'モード', '操作', '平均(ms)', 'ops/sec', '備考'))
-    lines.push(sep(7))
+    lines.push(tableRow('フォーマット', '言語', 'モード', '操作', '平均(ms)', 'ops/sec', 'σ(ms)', '95%CI(ms)', 'p50(ms)', 'p95(ms)', '備考'))
+    lines.push(sep(11))
     for (const r of props.noLibResults ?? []) {
-      lines.push(tableRow(r.format, 'TypeScript', r.mode === 'withLib' ? 'ライブラリあり' : 'ライブラリなし',
-        r.operation, fmt(r.avgMs, 3), fmt(r.opsPerSec, 1), '実測値'))
+      lines.push(tableRow(
+        r.format, 'TypeScript', r.mode === 'withLib' ? 'ライブラリあり' : 'ライブラリなし',
+        r.operation, fmt(r.avgMs, 3), fmt(r.opsPerSec, 1),
+        fmt(r.stdDevMs, 4),
+        r.ci95Ms != null ? `±${r.ci95Ms.toFixed(4)}` : '—',
+        fmt(r.p50Ms, 3), fmt(r.p95Ms, 3),
+        '実測値',
+      ))
     }
     for (const op of ['sign', 'verify'] as const) {
       const r = props.speedResults?.find(x => x.format === 'JSON-LD VC' && x.operation === op)
       if (r) lines.push(tableRow('JSON-LD VC', 'TypeScript', 'ライブラリあり', op, fmt(r.avgMs, 3), fmt(r.opsPerSec, 1), '実測値'))
+      const rJcs = props.speedResults?.find(x => x.format === 'JSON-LD VC (JCS)' && x.operation === op)
+      if (rJcs) lines.push(tableRow('JSON-LD VC (JCS)', 'TypeScript', 'ライブラリあり', op, fmt(rJcs.avgMs, 3), fmt(rJcs.opsPerSec, 1), '実測値'))
     }
-    const _mfmts = ['SD-JWT VC', 'JSON-LD VC', 'mdoc'] as const
+    const _mfmts = ['SD-JWT VC', 'JSON-LD VC', 'JSON-LD VC (JCS)', 'mdoc'] as const
     for (const f of _mfmts) {
       for (const m of ['withLib', 'noLib'] as const) {
-        if (f === 'JSON-LD VC' && m === 'noLib') continue
         for (const op of ['sign', 'verify'] as const) {
           const ref = props.refValues[`${f}-${m}-${op}`]
           if (!ref) continue
@@ -285,11 +415,77 @@ function buildMarkdown(props: Props, timestamp: string): string {
   }
 
   if (props.serialResults?.length) {
-    lines.push('## 📦 シリアライズ速度（暗号なし）')
-    lines.push(tableRow('フォーマット', '操作', '平均(ms)', 'ops/sec', 'ペイロード(bytes)'))
-    lines.push(sep(5))
+    lines.push('## 📦 シリアライズ速度（暗号なし、統計分布）')
+    lines.push(tableRow('フォーマット', '操作/ラベル', '平均(ms)', 'ops/sec', 'σ(ms)', '95%CI(ms)', 'p50(ms)', 'p95(ms)', 'p99(ms)', 'ペイロード(bytes)'))
+    lines.push(sep(10))
     for (const r of props.serialResults) {
-      lines.push(tableRow(r.format, r.operation, fmt(r.avgMs, 3), fmt(r.opsPerSec, 1), r.payloadSizeBytes))
+      lines.push(tableRow(
+        r.format, r.label ?? r.operation, fmt(r.avgMs, 4), fmt(r.opsPerSec, 1),
+        fmt(r.stdDevMs, 5),
+        r.ci95Ms != null ? `±${r.ci95Ms.toFixed(5)}` : '—',
+        fmt(r.p50Ms, 4), fmt(r.p95Ms, 4), fmt(r.p99Ms, 4),
+        r.payloadSizeBytes,
+      ))
+    }
+    lines.push('')
+  }
+
+  if (props.scalingResults) {
+    const sr = props.scalingResults
+
+    lines.push('## 📊 属性数スケーリング（シリアライズ速度 vs 属性数）')
+    lines.push(tableRow('フォーマット', '属性数', '反復数', '平均(ms)', 'ops/sec', 'σ(ms)', 'p95(ms)', 'size(B)'))
+    lines.push(sep(8))
+    for (const r of sr.attrScaling) {
+      lines.push(tableRow(
+        r.format, r.attrCount ?? '—', r.iterations,
+        fmt(r.avgMs, 4), fmt(r.opsPerSec, 1), fmt(r.stdDevMs, 5), fmt(r.p95Ms, 4),
+        r.payloadSizeBytes ?? '—',
+      ))
+    }
+    lines.push('')
+
+    lines.push('## 🌐 JSON-LD コンテキストローダー比較（SSRF・性能リスク）')
+    lines.push(tableRow('フォーマット', 'ローダー', '反復数', '平均(ms)', 'p95(ms)', 'σ(ms)'))
+    lines.push(sep(6))
+    for (const r of sr.contextLoader) {
+      lines.push(tableRow(r.format, r.label, r.iterations, fmt(r.avgMs, 2), fmt(r.p95Ms, 2), fmt(r.stdDevMs, 3)))
+    }
+    lines.push('')
+
+    lines.push('## 🛡 URDNA2015 call limit 有無の比較（DoS 緩和効果）')
+    lines.push(tableRow('グラフ', 'タイムアウト', '計測時間(ms)', '状態'))
+    lines.push(sep(4))
+    for (const r of sr.callLimit) {
+      lines.push(tableRow(
+        r.label,
+        r.condition === 'with' ? 'あり' : 'なし',
+        fmt(r.avgMs, 1),
+        r.timedOut ? (r.condition === 'with' ? '保護動作' : 'タイムアウト') : '完了',
+      ))
+    }
+    lines.push('')
+
+    lines.push('## 🔓 選択的開示性能比較（開示属性数別レイテンシ）')
+    lines.push(tableRow('フォーマット', '開示数/合計', '反復数', '平均(ms)', 'p50(ms)', 'p95(ms)', 'σ(ms)', '備考'))
+    lines.push(sep(8))
+    for (const r of sr.selectiveDisc) {
+      const note = r.format === 'JSON-LD VC' ? 'URDNA2015再正規化' : r.format === 'JSON-LD VC (JCS)' ? 'JCS再正規化' : r.format === 'SD-JWT VC' ? 'SHA-256ハッシュ' : 'CBORサブセット'
+      lines.push(tableRow(
+        r.format, r.disclosedCount != null ? `${r.disclosedCount}/20` : '—',
+        r.iterations, fmt(r.avgMs, 4), fmt(r.p50Ms, 4), fmt(r.p95Ms, 4), fmt(r.stdDevMs, 5), note,
+      ))
+    }
+    lines.push('')
+
+    lines.push('## 🔑 Ed25519 統一ベンチマーク（純粋シリアライゼーション差の分離）')
+    lines.push(tableRow('フォーマット', '操作', '反復数', '平均(ms)', 'ops/sec', 'σ(ms)', 'p50(ms)', 'p95(ms)'))
+    lines.push(sep(8))
+    for (const r of sr.unifiedEd25519) {
+      lines.push(tableRow(
+        r.format, r.condition ?? '—', r.iterations,
+        fmt(r.avgMs, 3), fmt(r.opsPerSec, 1), fmt(r.stdDevMs, 4), fmt(r.p50Ms, 3), fmt(r.p95Ms, 3),
+      ))
     }
     lines.push('')
   }
@@ -412,11 +608,21 @@ function NotRun({ label }: { label: string }) {
 export function ReportView(props: Props) {
   const [copied, setCopied] = useState<string | null>(null)
   const timestamp = new Date().toLocaleString('ja-JP')
+  const isBackend = props.benchMode === 'backend'
 
-  const runCount = [
-    props.speedResults, props.complexityResults, props.securityResults,
-    props.noLibResults, props.serialResults,
-  ].filter(Boolean).length
+  // In backend mode, derive effective results from backendResult
+  const beNode     = props.backendResult?.nodeResult
+  const bePython   = props.backendResult?.pythonResult
+  const beGo       = props.backendResult?.goResult
+  const beComplex  = isBackendComplexityArray(props.backendResult?.complexityResult) ? props.backendResult!.complexityResult : null
+  const beSecurity = isBackendSecurityArray(props.backendResult?.securityResult)     ? props.backendResult!.securityResult     : null
+
+  const runCount = isBackend
+    ? [beNode, bePython, beGo, beComplex, beSecurity].filter(Boolean).length
+    : [
+        props.speedResults, props.complexityResults, props.securityResults,
+        props.noLibResults, props.serialResults, props.scalingResults,
+      ].filter(Boolean).length
 
   const handleCopy = useCallback(async (type: 'csv' | 'markdown' | 'json') => {
     const content =
@@ -445,10 +651,20 @@ export function ReportView(props: Props) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
       {/* Header + export buttons */}
-      <div style={{ ...panelStyle, borderColor: '#3b82f630' }}>
+      <div style={{ ...panelStyle, borderColor: isBackend ? '#ea580c30' : '#3b82f630' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
           <div>
-            <h2 style={{ fontSize: 16, fontWeight: 700, color: '#e2e8f0', marginBottom: 4 }}>テスト結果レポート</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 700, color: '#e2e8f0' }}>テスト結果レポート</h2>
+              <span style={{
+                fontSize: 11, padding: '2px 10px', borderRadius: 20, fontWeight: 600,
+                background: isBackend ? '#ea580c20' : '#3b82f620',
+                color: isBackend ? '#fb923c' : '#93c5fd',
+                border: `1px solid ${isBackend ? '#ea580c50' : '#3b82f650'}`,
+              }}>
+                {isBackend ? '🖥 バックエンド計測' : '🌐 ブラウザ計測'}
+              </span>
+            </div>
             <p style={{ fontSize: 12, color: '#64748b' }}>エクスポート日時: {timestamp}</p>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -477,13 +693,20 @@ export function ReportView(props: Props) {
 
         {/* Progress indicator */}
         <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
-          {[
+          {(isBackend ? [
+            { label: 'Node.js 速度', done: !!(beNode?.results) },
+            { label: 'Python 速度', done: !!(bePython?.results) },
+            { label: 'Go 速度', done: !!(beGo?.results) },
+            { label: '複雑性', done: !!beComplex },
+            { label: 'セキュリティ', done: !!beSecurity },
+          ] : [
             { label: '署名速度', done: !!props.speedResults },
             { label: '複雑性', done: !!props.complexityResults },
             { label: 'セキュリティ', done: !!props.securityResults },
             { label: 'ライブラリなし', done: !!props.noLibResults },
             { label: 'シリアライズ', done: !!props.serialResults },
-          ].map(({ label, done }) => (
+            { label: '詳細分析', done: !!props.scalingResults },
+          ]).map(({ label, done }) => (
             <span key={label} style={{
               fontSize: 11, padding: '3px 10px', borderRadius: 20,
               background: done ? '#14532d' : '#1e293b',
@@ -494,13 +717,36 @@ export function ReportView(props: Props) {
             </span>
           ))}
           <span style={{ fontSize: 11, color: '#64748b', padding: '3px 6px' }}>
-            {runCount}/5 完了
+            {runCount}/6 完了
           </span>
         </div>
       </div>
 
       {/* テスト実行環境（詳細） */}
-      {(() => {
+      {isBackend ? (
+        <SectionTable
+          title="🖥 テスト実行環境（バックエンド）"
+          color="#a78bfa"
+          headers={['項目', '値']}
+          rows={[
+            ['実行日時', timestamp],
+            ['実行モード', 'バックエンド (Node.js Express サーバー / process.hrtime.bigint())'],
+            ['Node.js ランタイム', beNode?.runtimeInfo ?? 'Node.js (process.hrtime.bigint)'],
+            ['Python ランタイム', bePython?.runtimeInfo ?? 'Python (time.perf_counter_ns)'],
+            ['Go ランタイム', beGo?.runtimeInfo ?? 'Go native binary (time.Now().UnixNano)'],
+            ['バックエンドポート', 'Express localhost:3001'],
+            ['Node.js 結果数', Object.keys(beNode?.results ?? {}).length],
+            ['Python 結果数', Object.keys(bePython?.results ?? {}).length],
+            ['Go 結果数', Object.keys(beGo?.results ?? {}).length],
+            ['複雑性メトリクス数', beComplex?.length ?? 0],
+            ['セキュリティテスト数', beSecurity?.length ?? 0],
+            ['使用ライブラリ (Node.js)', 'node:crypto (ECDSA P-256 / Ed25519) / cbor-x / jsonld'],
+            ['使用ライブラリ (Python)', 'cryptography / cbor2 / pyld'],
+            ['使用ライブラリ (Go)', '標準ライブラリのみ: crypto/ecdsa, crypto/sha256, encoding/base64'],
+            ['規格', 'IETF RFC 9901 / W3C VCDM 2.0 / ISO 18013-5'],
+          ]}
+        />
+      ) : (() => {
         const env = detectEnv()
         return (
           <SectionTable
@@ -524,8 +770,8 @@ export function ReportView(props: Props) {
               ['使用ライブラリ (Python)', 'cryptography (bundled) / PyJWT / pyld / cbor2 (micropip)'],
               ['使用ライブラリ (Go)', '標準ライブラリのみ: crypto/ecdsa, crypto/sha256, encoding/base64'],
               ['規格', 'IETF RFC 9901 / W3C VCDM 2.0 / ISO 18013-5'],
-              ['署名アルゴリズム', 'SD-JWT VC: EdDSA Ed25519 / JSON-LD VC: Ed25519+SHA-256 / mdoc: ECDSA P-256'],
-              ['正規化', 'JSON-LD VC: URDNA2015 (RDF Dataset Normalization, jsonld@8.x) / その他: なし'],
+              ['署名アルゴリズム', 'SD-JWT VC: EdDSA Ed25519 / JSON-LD VC: Ed25519+SHA-256 / JSON-LD VC (JCS): Ed25519+SHA-256 / mdoc: ECDSA P-256'],
+              ['正規化', 'JSON-LD VC: URDNA2015 (RDF Dataset Normalization, eddsa-rdfc-2022) / JSON-LD VC (JCS): JCS RFC 8785 (eddsa-jcs-2022) / その他: なし'],
               ['Go 実測', props.goResults     ? `✓ WASM 実測済み (${Object.keys(props.goResults).length} 項目)` : '参考値（未実測）'],
               ['Python 実測', props.pythonResults ? `✓ Pyodide 実測済み (${Object.keys(props.pythonResults).length} 項目)` : '参考値（未実測）'],
             ]}
@@ -534,49 +780,109 @@ export function ReportView(props: Props) {
       })()}
 
       {/* 署名速度 */}
-      {props.speedResults ? (
-        <SectionTable
-          title="⚡ 署名検証速度"
-          color="#60a5fa"
-          headers={['フォーマット', '操作', '反復数', '合計(ms)', '平均(ms)', 'ops/sec']}
-          rows={props.speedResults.map(r => [
-            r.format, r.operation, r.iterations,
-            fmt(r.totalMs, 1), fmt(r.avgMs, 3), fmt(r.opsPerSec, 1),
-          ])}
-        />
-      ) : <NotRun label="署名検証速度" />}
+      {isBackend ? (
+        <>
+          {(['Node.js', 'Python', 'Go'] as const).map(lang => {
+            const res = lang === 'Node.js' ? beNode : lang === 'Python' ? bePython : beGo
+            const entries = Object.entries(res?.results ?? {})
+            const color = lang === 'Node.js' ? '#60a5fa' : lang === 'Python' ? '#f59e0b' : '#34d399'
+            return entries.length > 0 ? (
+              <SectionTable
+                key={lang}
+                title={`⚡ 署名検証速度 — ${lang} (process.hrtime.bigint / perf_counter_ns)`}
+                color={color}
+                headers={['キー', '反復数', '平均(ms)', 'ops/sec', '平均(ns)', 'σ(ms)', '95%CI(ms)', 'p50(ms)', 'p90(ms)', 'p95(ms)', 'p99(ms)', 'min(ms)', 'max(ms)']}
+                rows={entries.map(([key, e]) => [
+                  key, e.iterations, fmt(e.avgMs, 3), fmt(e.opsPerSec, 1),
+                  e.avgNs !== undefined ? e.avgNs.toFixed(0) : '—',
+                  fmt(e.stdDevMs, 4),
+                  e.ci95Ms != null ? `±${e.ci95Ms.toFixed(4)}` : '—',
+                  fmt(e.p50Ms, 3), fmt(e.p90Ms, 3), fmt(e.p95Ms, 3), fmt(e.p99Ms, 3),
+                  fmt(e.minMs, 3), fmt(e.maxMs, 3),
+                ])}
+              />
+            ) : <NotRun key={lang} label={`署名検証速度 — ${lang}`} />
+          })}
+        </>
+      ) : (
+        props.speedResults ? (
+          <SectionTable
+            title="⚡ 署名検証速度（統計分布）"
+            color="#60a5fa"
+            headers={['フォーマット', '操作', '反復数', '平均(ms)', 'ops/sec', 'σ(ms)', '95%CI(ms)', 'p50(ms)', 'p90(ms)', 'p95(ms)', 'p99(ms)', 'min(ms)', 'max(ms)']}
+            rows={props.speedResults.map(r => [
+              r.format, r.operation, r.iterations,
+              fmt(r.avgMs, 3), fmt(r.opsPerSec, 1),
+              fmt(r.stdDevMs, 4),
+              r.ci95Ms != null ? `±${r.ci95Ms.toFixed(4)}` : '—',
+              fmt(r.p50Ms, 3), fmt(r.p90Ms, 3), fmt(r.p95Ms, 3), fmt(r.p99Ms, 3),
+              fmt(r.minMs, 3), fmt(r.maxMs, 3),
+            ])}
+          />
+        ) : <NotRun label="署名検証速度" />
+      )}
 
       {/* 複雑性 */}
-      {props.complexityResults ? (
-        <SectionTable
-          title="📐 デシリアライズ複雑性"
-          color="#f59e0b"
-          headers={['フォーマット', 'LOC', '非同期ステップ', '循環的複雑度', 'ネットワーク呼出', 'パース時間(ms)', '外部依存']}
-          rows={props.complexityResults.map(r => [
-            r.format, r.linesOfCode, r.asyncSteps, r.cyclomaticComplexity,
-            r.externalNetworkCalls, fmt(r.parseTimeMs, 2),
-            r.externalDependencies.join(' / '),
-          ])}
-        />
-      ) : <NotRun label="デシリアライズ複雑性" />}
+      {isBackend ? (
+        beComplex ? (
+          <SectionTable
+            title="📐 デシリアライズ複雑性（バックエンド実測 / process.hrtime.bigint）"
+            color="#f59e0b"
+            headers={['フォーマット', 'ライブラリ', 'LOC', '非同期ステップ', '循環的複雑度', 'ネットワーク呼出', 'パース時間(ms)', '外部依存']}
+            rows={beComplex.map(r => [
+              r.format, r.lib, r.linesOfCode, r.asyncSteps, r.cyclomaticComplexity,
+              r.externalNetworkCalls, fmt(r.parseTimeMs, 4),
+              r.externalDependencies.join(' / '),
+            ])}
+          />
+        ) : <NotRun label="デシリアライズ複雑性 — バックエンド計測を実行してください" />
+      ) : (
+        props.complexityResults ? (
+          <SectionTable
+            title="📐 デシリアライズ複雑性"
+            color="#f59e0b"
+            headers={['フォーマット', 'LOC', '非同期ステップ', '循環的複雑度', 'ネットワーク呼出', 'パース時間(ms)', '外部依存']}
+            rows={props.complexityResults.map(r => [
+              r.format, r.linesOfCode, r.asyncSteps, r.cyclomaticComplexity,
+              r.externalNetworkCalls, fmt(r.parseTimeMs, 2),
+              r.externalDependencies.join(' / '),
+            ])}
+          />
+        ) : <NotRun label="デシリアライズ複雑性" />
+      )}
 
       {/* セキュリティ */}
-      {props.securityResults ? (
-        <SectionTable
-          title="🔐 セキュリティテスト"
-          color="#f87171"
-          headers={['ID', 'テスト名', 'フォーマット', 'カテゴリ', '深刻度', '結果', '詳細']}
-          rows={props.securityResults.map(r => [
-            r.id, r.name, r.format, r.category,
-            r.severity.toUpperCase(), secLabel(r.result),
-            r.details.length > 60 ? r.details.slice(0, 60) + '…' : r.details,
-          ])}
-        />
-      ) : <NotRun label="セキュリティテスト" />}
+      {isBackend ? (
+        beSecurity ? (
+          <SectionTable
+            title="🔐 セキュリティテスト（バックエンド — Node.js）"
+            color="#f87171"
+            headers={['ID', 'テスト名', 'フォーマット', 'カテゴリ', '深刻度', '結果', '詳細']}
+            rows={beSecurity.map(r => [
+              r.id, r.name, r.format, r.category,
+              r.severity.toUpperCase(), secLabel(r.result),
+              r.details.length > 60 ? r.details.slice(0, 60) + '…' : r.details,
+            ])}
+          />
+        ) : <NotRun label="セキュリティテスト — バックエンド計測を実行してください" />
+      ) : (
+        props.securityResults ? (
+          <SectionTable
+            title="🔐 セキュリティテスト"
+            color="#f87171"
+            headers={['ID', 'テスト名', 'フォーマット', 'カテゴリ', '深刻度', '結果', '詳細']}
+            rows={props.securityResults.map(r => [
+              r.id, r.name, r.format, r.category,
+              r.severity.toUpperCase(), secLabel(r.result),
+              r.details.length > 60 ? r.details.slice(0, 60) + '…' : r.details,
+            ])}
+          />
+        ) : <NotRun label="セキュリティテスト" />
+      )}
 
-      {/* ライブラリなし vs あり — TypeScript + Go + Python */}
-      {(() => {
-        const fmts = ['SD-JWT VC', 'JSON-LD VC', 'mdoc'] as const
+      {/* ライブラリなし vs あり — TypeScript + Go + Python (frontend only) */}
+      {!isBackend && (() => {
+        const fmts = ['SD-JWT VC', 'JSON-LD VC', 'JSON-LD VC (JCS)', 'mdoc'] as const
         const modes = ['withLib', 'noLib'] as const
         const ops   = ['sign', 'verify'] as const
         const langs = ['Go', 'Python'] as const
@@ -586,12 +892,13 @@ export function ReportView(props: Props) {
 
         for (const f of fmts) {
           for (const m of modes) {
-            if (f === 'JSON-LD VC' && m === 'noLib') continue // no-lib not practical
             for (const op of ops) {
-              // TypeScript row
-              const tsResult = f === 'JSON-LD VC'
-                ? props.speedResults?.find(r => r.format === 'JSON-LD VC' && r.operation === op)
-                : props.noLibResults?.find(r => r.format === f && r.mode === m && r.operation === op)
+              // TypeScript row: JCS comes from speedResults; JSON-LD VC withLib from speedResults, noLib from noLibResults
+              const tsResult = f === 'JSON-LD VC (JCS)'
+                ? props.speedResults?.find(r => r.format === f && r.operation === op)
+                : f === 'JSON-LD VC' && m === 'withLib'
+                  ? props.speedResults?.find(r => r.format === 'JSON-LD VC' && r.operation === op)
+                  : props.noLibResults?.find(r => r.format === f && r.mode === m && r.operation === op)
               if (tsResult || props.noLibResults || props.speedResults) {
                 rows.push([
                   f,
@@ -601,6 +908,11 @@ export function ReportView(props: Props) {
                   tsResult ? tsResult.iterations : '—',
                   tsResult ? fmt(tsResult.avgMs, 3) : '未計測',
                   tsResult ? fmt(tsResult.opsPerSec, 1) : '未計測',
+                  tsResult?.stdDevMs != null ? fmt(tsResult.stdDevMs, 4) : '—',
+                  tsResult?.ci95Ms   != null ? `±${tsResult.ci95Ms.toFixed(4)}` : '—',
+                  tsResult?.p50Ms    != null ? fmt(tsResult.p50Ms, 3) : '—',
+                  tsResult?.p95Ms    != null ? fmt(tsResult.p95Ms, 3) : '—',
+                  tsResult?.p99Ms    != null ? fmt(tsResult.p99Ms, 3) : '—',
                   '実測値',
                 ])
               }
@@ -636,6 +948,7 @@ export function ReportView(props: Props) {
                   lang === 'Python' && props.pythonResults?.[refKey] ? props.pythonResults[refKey].iterations : '参考',
                   lang === 'Python' && props.pythonResults?.[refKey] ? fmt(props.pythonResults[refKey].avgMs, 3) : '—',
                   opsVal > 0 ? opsVal.toLocaleString() : '—',
+                  '—', '—', '—', '—', '—',
                   note,
                 ])
               }
@@ -647,30 +960,103 @@ export function ReportView(props: Props) {
           <SectionTable
             title="🧪 ライブラリなし vs あり — 言語別比較（TypeScript 実測 / Go・Python 参考値）"
             color="#f472b6"
-            headers={['フォーマット', '言語', 'モード', '操作', '反復数', '平均(ms)', 'ops/sec', '備考']}
+            headers={['フォーマット', '言語', 'モード', '操作', '反復数', '平均(ms)', 'ops/sec', 'σ(ms)', '95%CI(ms)', 'p50(ms)', 'p95(ms)', 'p99(ms)', '備考']}
             rows={rows}
           />
         )
       })()}
 
-      {/* シリアライズ */}
-      {props.serialResults ? (
+      {/* シリアライズ (frontend only) */}
+      {!isBackend && (props.serialResults ? (
         <SectionTable
-          title="📦 シリアライズ速度（暗号なし — CBOR vs JSON）"
+          title="📦 シリアライズ速度（暗号なし — CBOR vs JSON vs 正規化、統計分布）"
           color="#34d399"
-          headers={['フォーマット', '操作', '反復数', '平均(ms)', 'ops/sec', 'ペイロード(bytes)']}
+          headers={['フォーマット', '操作/ラベル', '反復数', '平均(ms)', 'ops/sec', 'σ(ms)', '95%CI(ms)', 'p50(ms)', 'p95(ms)', 'p99(ms)', 'min(ms)', 'max(ms)', 'ペイロード(bytes)']}
           rows={props.serialResults.map(r => [
-            r.format, r.operation, r.iterations,
-            fmt(r.avgMs, 3), fmt(r.opsPerSec, 1), r.payloadSizeBytes,
+            r.format, r.label ?? r.operation, r.iterations,
+            fmt(r.avgMs, 4), fmt(r.opsPerSec, 1),
+            fmt(r.stdDevMs, 5),
+            r.ci95Ms != null ? `±${r.ci95Ms.toFixed(5)}` : '—',
+            fmt(r.p50Ms, 4), fmt(r.p95Ms, 4), fmt(r.p99Ms, 4),
+            fmt(r.minMs, 4), fmt(r.maxMs, 4),
+            r.payloadSizeBytes,
           ])}
         />
-      ) : <NotRun label="シリアライズ速度" />}
+      ) : <NotRun label="シリアライズ速度" />)}
+
+      {/* 詳細分析 — scaling results (always shown if available, regardless of benchMode) */}
+      {props.scalingResults ? (
+        <>
+          <SectionTable
+            title="📊 属性数スケーリング（シリアライズ速度 vs 属性数）"
+            color="#a78bfa"
+            headers={['フォーマット', '属性数', '反復数', '平均(ms)', 'ops/sec', 'σ(ms)', 'p95(ms)', 'size(B)']}
+            rows={props.scalingResults.attrScaling.map(r => [
+              r.format, r.attrCount ?? '—', r.iterations,
+              fmt(r.avgMs, 4), fmt(r.opsPerSec, 1), fmt(r.stdDevMs, 5), fmt(r.p95Ms, 4),
+              r.payloadSizeBytes ?? '—',
+            ])}
+          />
+          <SectionTable
+            title="🌐 JSON-LD コンテキストローダー比較（SSRF・性能リスク）"
+            color="#f59e0b"
+            headers={['フォーマット', 'ローダー', '反復数', '平均(ms)', 'p95(ms)', 'σ(ms)']}
+            rows={props.scalingResults.contextLoader.map(r => [
+              r.format, r.label, r.iterations, fmt(r.avgMs, 2), fmt(r.p95Ms, 2), fmt(r.stdDevMs, 3),
+            ])}
+          />
+          <SectionTable
+            title="🛡 URDNA2015 call limit 有無の比較（DoS 緩和効果）"
+            color="#ef4444"
+            headers={['グラフ', 'タイムアウト', '計測時間(ms)', '状態']}
+            rows={props.scalingResults.callLimit.map(r => [
+              r.label,
+              r.condition === 'with' ? 'あり' : 'なし',
+              fmt(r.avgMs, 1),
+              r.timedOut ? (r.condition === 'with' ? '保護動作' : 'タイムアウト') : '完了',
+            ])}
+          />
+          <SectionTable
+            title="🔓 選択的開示性能比較（開示属性数別レイテンシ）"
+            color="#34d399"
+            headers={['フォーマット', '開示数/合計', '反復数', '平均(ms)', 'p50(ms)', 'p95(ms)', 'σ(ms)', '備考']}
+            rows={props.scalingResults.selectiveDisc.map(r => [
+              r.format, r.disclosedCount != null ? `${r.disclosedCount}/20` : '—',
+              r.iterations, fmt(r.avgMs, 4), fmt(r.p50Ms, 4), fmt(r.p95Ms, 4), fmt(r.stdDevMs, 5),
+              r.format === 'JSON-LD VC' ? 'URDNA2015再正規化' : r.format === 'JSON-LD VC (JCS)' ? 'JCS再正規化' : r.format === 'SD-JWT VC' ? 'SHA-256ハッシュ' : 'CBORサブセット',
+            ])}
+          />
+          <SectionTable
+            title="🔑 Ed25519 統一ベンチマーク（純粋シリアライゼーション差の分離）"
+            color="#60a5fa"
+            headers={['フォーマット', '操作', '反復数', '平均(ms)', 'ops/sec', 'σ(ms)', 'p50(ms)', 'p95(ms)']}
+            rows={props.scalingResults.unifiedEd25519.map(r => [
+              r.format, r.condition ?? '—', r.iterations,
+              fmt(r.avgMs, 3), fmt(r.opsPerSec, 1), fmt(r.stdDevMs, 4), fmt(r.p50Ms, 3), fmt(r.p95Ms, 3),
+            ])}
+          />
+        </>
+      ) : <NotRun label="詳細分析（詳細分析タブで実行）" />}
 
       {/* 実行コード */}
-      <CodeSourceSection
-        goResults={props.goResults}
-        pythonResults={props.pythonResults}
-      />
+      {isBackend ? (
+        <div style={{ ...panelStyle, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <h3 style={{ ...sectionTitle, color: '#fb923c' }}>📄 実際の実行コード（バックエンド）</h3>
+          <p style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>
+            バックエンドサーバーで実際に実行されたコードを示します。クリックで展開できます。
+          </p>
+          <CodeBlock lang="TypeScript" label="server/bench/nodeSpeed.ts — Node.js 署名速度ベンチマーク (process.hrtime.bigint())" color="#60a5fa" code={TS_SPEED_SOURCE} />
+          <CodeBlock lang="TypeScript" label="server/bench/nodeComplexity.ts — Node.js 複雑性計測" color="#f59e0b" code="// server/bench/nodeComplexity.ts\n// BackendComplexityEntry[] を返す\n// process.hrtime.bigint() で parseTimeNs を計測\n// linesOfCode / asyncSteps / cyclomaticComplexity は静的メトリクス" />
+          <CodeBlock lang="TypeScript" label="server/bench/nodeSecurity.ts — Node.js セキュリティテスト" color="#f87171" code={TS_SECURITY_SOURCE} />
+          <CodeBlock lang="Python" label="server/bench/speed.py — Python 速度ベンチマーク (time.perf_counter_ns())" color="#f59e0b" code={PYTHON_BENCH_SOURCE} />
+          <CodeBlock lang="Go" label="go/bench-native/main.go — Go native バイナリ (time.Now().UnixNano())" color="#34d399" code={GO_BENCH_SOURCE} />
+        </div>
+      ) : (
+        <CodeSourceSection
+          goResults={props.goResults}
+          pythonResults={props.pythonResults}
+        />
+      )}
 
     </div>
   )
