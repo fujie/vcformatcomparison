@@ -521,6 +521,8 @@ export async function runSelectiveDiscBenchmark(
     })
 
     // JSON-LD VC (JCS) selective disclosure: re-canonicalize disclosed subset
+    // Batch timing: single performance.now() call measures BATCH iterations to avoid
+    // 0.1ms timer quantization noise (Spectre mitigation) dominating sub-ms operations.
     onProgress?.(`選択的開示: JSON-LD VC (JCS) ${n}/${totalAttrs}属性...`)
     const jcsDoc = {
       '@context': [VC_CONTEXT_URL, { '@vocab': VOCAB }],
@@ -528,11 +530,14 @@ export async function runSelectiveDiscBenchmark(
       issuer: ISSUER_ID,
       credentialSubject: { id: SUBJ_ID, ...revealedAttrs },
     }
+    const JCS_BATCH = 200
     const jcsTimings: number[] = []
     for (let i = 0; i < iterations; i++) {
       const t = performance.now()
-      jcsCanonical({ ...jcsDoc, iat: i })
-      jcsTimings.push(performance.now() - t)
+      for (let j = 0; j < JCS_BATCH; j++) {
+        jcsCanonical({ ...jcsDoc, iat: i * JCS_BATCH + j })
+      }
+      jcsTimings.push((performance.now() - t) / JCS_BATCH)
     }
     results.push({
       benchmark: 'selectiveDisc', format: 'JSON-LD VC (JCS)',
