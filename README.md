@@ -1,232 +1,234 @@
 # VC Format Comparison Tool
 
-SD-JWT VC・JSON-LD VC・JSON-LD VC (JCS)・mdoc (ISO 18013-5) の4フォーマットを、署名検証速度・デシリアライズ複雑性・正規化セキュリティ・属性スケーリングなど多軸で定量比較するブラウザ完結型のベンチマークツールです。
+A browser-based benchmark tool for quantitatively comparing four Verifiable Credential formats — **SD-JWT VC**, **JSON-LD VC**, **JSON-LD VC (JCS)**, and **mdoc (ISO 18013-5)** — across multiple axes including signature verification speed, deserialization complexity, normalization security, and attribute scaling.
 
-## 比較対象フォーマット
+[日本語版 README はこちら](README.ja.md)
 
-| フォーマット | 規格 | シリアライズ | 署名アルゴリズム | 正規化 |
+## Compared Formats
+
+| Format | Specification | Serialization | Signature Algorithm | Canonicalization |
 |---|---|---|---|---|
-| **SD-JWT VC** | IETF RFC 9901 | JWT (テキスト) | EdDSA (Ed25519) | なし |
-| **JSON-LD VC** | W3C VCDM 2.0 | JSON-LD (テキスト) | Ed25519 + SHA-256 | URDNA2015 (RDF) |
-| **JSON-LD VC (JCS)** | W3C VCDM 2.0 | JSON-LD (テキスト) | Ed25519 + SHA-256 | JCS RFC 8785 |
-| **mdoc** | ISO 18013-5 | CBOR (バイナリ) | ECDSA P-256 (ES256) | なし |
+| **SD-JWT VC** | IETF RFC 9901 | JWT (text) | EdDSA (Ed25519) | None |
+| **JSON-LD VC** | W3C VCDM 2.0 | JSON-LD (text) | Ed25519 + SHA-256 | URDNA2015 (RDF) |
+| **JSON-LD VC (JCS)** | W3C VCDM 2.0 | JSON-LD (text) | Ed25519 + SHA-256 | JCS RFC 8785 |
+| **mdoc** | ISO 18013-5 | CBOR (binary) | ECDSA P-256 (ES256) | None |
 
-## セットアップ
+## Setup
 
 ```bash
 git clone git@github.com:fujie/vcformatcomparison.git
 cd vcformatcomparison
 npm install
-npm run dev        # フロントエンド (http://localhost:5173)
+npm run dev        # Frontend (http://localhost:5173)
 ```
 
-バックエンド計測を使用する場合は別ターミナルでサーバーも起動します。
+For backend measurement mode, start the server in a separate terminal:
 
 ```bash
-npm run server     # バックエンドサーバー (http://localhost:3001)
+npm run server     # Backend server (http://localhost:3001)
 ```
 
-両方を同時に起動するショートカット:
+To start both simultaneously:
 
 ```bash
-npm run dev:full   # Vite + バックエンドサーバーを並列起動
+npm run dev:full   # Start Vite + backend server in parallel
 ```
 
-> **外部通信なし (フロントエンドモード)**: JSON-LD コンテキストはソースコードに静的埋め込みされており、ベンチマーク中に外部 URL へのリクエストは発生しません。
+> **No external network requests (frontend mode)**: JSON-LD contexts are statically embedded in source code; no external URL requests are made during benchmarking.
 
-## 計測モード
+## Measurement Modes
 
-### 🌐 ブラウザモード (デフォルト)
+### 🌐 Browser Mode (Default)
 
-`performance.now()` (精度 ~0.1ms) でブラウザ内計測を行います。TypeScript / Go (WebAssembly) / Python (Pyodide) の3言語で実測値を取得します。
+Measures in-browser using `performance.now()` (~0.1 ms precision). Runs real measurements in three languages: TypeScript, Go (WebAssembly), and Python (Pyodide).
 
-### 🖥 バックエンドモード
+### 🖥 Backend Mode
 
-Node.js の `process.hrtime.bigint()` (精度 ナノ秒) でサーバーサイド計測を行います。Go ネイティブバイナリ・Python `time.perf_counter_ns()` も含めた3言語比較が可能です。バックエンドサーバー (`npm run server`) が起動している必要があります。
+Server-side measurement using Node.js `process.hrtime.bigint()` (nanosecond precision). Enables three-language comparison including native Go binary and Python `time.perf_counter_ns()`. Requires the backend server (`npm run server`) to be running.
 
 ---
 
-## ベンチマークタブ一覧
+## Benchmark Tabs
 
-### ⚡ 署名検証速度
+### ⚡ Signature Verification Speed
 
-各フォーマットの sign / verify を指定イテレーション数で実行し、統計分布を計測します。
+Runs sign/verify for each format over the specified iteration count and measures the statistical distribution.
 
-**計測内容**
+**What is measured**
 
-| フォーマット | sign | verify |
+| Format | Sign | Verify |
 |---|---|---|
 | SD-JWT VC | `jose` SignJWT (EdDSA/Ed25519) | `jose` jwtVerify |
 | JSON-LD VC | jsonld.normalize (URDNA2015) → SHA-256 → @noble/ed25519 sign | normalize → SHA-256 → ed25519 verify |
-| JSON-LD VC (JCS) | JCS RFC 8785 正規化 → SHA-256 → @noble/ed25519 sign | JCS → SHA-256 → ed25519 verify |
-| mdoc | CBOR encode → SHA-256 ダイジェスト → COSE_Sign1 (ECDSA P-256) | MSO デコード → ダイジェスト検証 → COSE 署名検証 |
+| JSON-LD VC (JCS) | JCS RFC 8785 canonicalization → SHA-256 → @noble/ed25519 sign | JCS → SHA-256 → ed25519 verify |
+| mdoc | CBOR encode → SHA-256 digest → COSE_Sign1 (ECDSA P-256) | MSO decode → digest verification → COSE signature verification |
 
-**出力統計**
+**Output statistics**
 
-| 指標 | 説明 |
+| Metric | Description |
 |---|---|
-| ops/sec | 1秒あたりの処理回数 |
-| 平均 (ms) | 全イテレーションの算術平均 |
-| σ (ms) | 標準偏差 |
-| 95%CI (ms) | 95% 信頼区間の半幅 (±) |
-| p50 / p90 / p95 / p99 (ms) | パーセンタイルレイテンシ |
-| min / max (ms) | 最小・最大値 |
+| ops/sec | Operations per second |
+| avg (ms) | Arithmetic mean across all iterations |
+| σ (ms) | Standard deviation |
+| 95%CI (ms) | Half-width of 95% confidence interval (±) |
+| p50 / p90 / p95 / p99 (ms) | Percentile latencies |
+| min / max (ms) | Minimum and maximum values |
 
-バックエンドモードでは上記に加えて平均(ns)・σ(ns) がナノ秒精度で出力されます。
+In backend mode, avg (ns) and σ (ns) are additionally output with nanosecond precision.
 
 ---
 
-### 📐 デシリアライズ複雑性
+### 📐 Deserialization Complexity
 
-最小限の検証実装に必要なコード複雑度を静的・動的に評価します。
+Statically and dynamically evaluates the code complexity required for a minimal verification implementation.
 
-| メトリクス | 説明 |
+| Metric | Description |
 |---|---|
-| LOC | 最小実装のコード行数 |
-| 非同期ステップ数 | `await` が必要な処理の数 |
-| 循環的複雑度 | 条件分岐の個数 |
-| 外部ネットワーク呼び出し | 実行時に外部 URL へリクエストが発生する回数 |
-| パース時間 (ms) | デシリアライズの実測レイテンシ |
+| LOC | Lines of code for minimal implementation |
+| Async steps | Number of operations requiring `await` |
+| Cyclomatic complexity | Number of conditional branches |
+| External network calls | Number of external URL requests at runtime |
+| Parse time (ms) | Measured deserialization latency |
 
 ---
 
-### 🔐 正規化セキュリティ
+### 🔐 Normalization Security
 
-各フォーマットに対して実際に攻撃ベクターを実行し、脆弱/緩和済み/N-A を判定します。
+Actually executes attack vectors against each format and determines Vulnerable / Mitigated / N/A status.
 
-| テスト ID | テスト名 | 対象 | カテゴリ |
+| Test ID | Test Name | Target | Category |
 |---|---|---|---|
-| S1 | ポイズングラフ DoS (URDNA2015) | JSON-LD VC | DoS |
-| S2 | JSON-LD コンテキストインジェクション | JSON-LD VC | ContextHijack |
-| S3 | リモートコンテキスト経由 SSRF | JSON-LD VC | SSRF |
-| S4 | alg:none 攻撃 | SD-JWT VC | AlgorithmConfusion |
-| S5 | アルゴリズム混同 RS256→EdDSA | SD-JWT VC | AlgorithmConfusion |
-| S6 | mdoc データ要素改ざん検出 | mdoc | CborMalleability |
-| S7 | COSE プロテクトヘッダー改ざん | mdoc | AlgorithmConfusion |
-| S8 | SSRF リスク評価 | mdoc | SSRF |
+| S1 | Poisoned graph DoS (URDNA2015) | JSON-LD VC | DoS |
+| S2 | JSON-LD context injection | JSON-LD VC | ContextHijack |
+| S3 | SSRF via remote context | JSON-LD VC | SSRF |
+| S4 | alg:none attack | SD-JWT VC | AlgorithmConfusion |
+| S5 | Algorithm confusion RS256→EdDSA | SD-JWT VC | AlgorithmConfusion |
+| S6 | mdoc data element tampering detection | mdoc | CborMalleability |
+| S7 | COSE protected header tampering | mdoc | AlgorithmConfusion |
+| S8 | SSRF risk assessment | mdoc | SSRF |
 
 ---
 
-### 🔤 実装比較 (ライブラリなし vs あり)
+### 🔤 Implementation Comparison (With vs. Without Libraries)
 
-ライブラリ有無でのパフォーマンス差と、TypeScript / Go / Python の言語間比較を行います。
+Compares performance with and without libraries, and benchmarks across TypeScript, Go, and Python.
 
-- **TypeScript**: ブラウザ内実測 (ライブラリあり/なしの両方)
-- **Go**: Go WebAssembly (`go/bench-native/main.go` を `GOOS=js GOARCH=wasm` でビルド、標準ライブラリのみ使用)
-- **Python**: Pyodide (CPython 3.12 on WebAssembly、`cryptography` / `PyJWT` / `pyld` / `cbor2` を micropip でインストール)
+- **TypeScript**: In-browser measurement (both with and without libraries)
+- **Go**: Go WebAssembly (`go/bench-native/main.go` built with `GOOS=js GOARCH=wasm`, standard library only)
+- **Python**: Pyodide (CPython 3.12 on WebAssembly; `cryptography`, `PyJWT`, `pyld`, `cbor2` installed via micropip)
 
-Go WASM と Python (Pyodide) の計測は「ベンチマーク実行」ボタン押下時に自動実行されます。初回はバイナリのロードに数秒かかります。
+Go WASM and Python (Pyodide) measurements run automatically when the "Run Benchmark" button is clicked. Initial load may take a few seconds for binary download.
 
 ---
 
-### 📊 詳細分析
+### 📊 Detailed Analysis
 
-5種類の応用ベンチマークを実行します。「詳細分析タブ」の「詳細分析ベンチマーク実行」ボタンで開始します。
+Runs five advanced benchmarks. Start by clicking "Run Detailed Analysis" in the Detailed Analysis tab.
 
-#### 1. 属性数スケーリング
+#### 1. Attribute Count Scaling
 
-5 / 20 / 100 / 500 属性で各フォーマットのシリアライズ速度を計測し、属性数増加に対する性能スケーリングを比較します。
+Measures serialization speed for each format at 5 / 20 / 100 / 500 attributes, comparing performance scaling as attribute count grows.
 
-#### 2. JSON-LD コンテキストローダー比較
+#### 2. JSON-LD Context Loader Comparison
 
-| ローダー種別 | 内容 |
+| Loader Type | Description |
 |---|---|
-| 静的ローダー | コンテキストを静的に事前ロード。SSRF リスクなし。 |
-| リモートローダー (シミュレーション) | 50ms のネットワーク遅延を付加。実際の外部リクエストは発生しない。 |
+| Static loader | Contexts pre-loaded statically. No SSRF risk. |
+| Remote loader (simulated) | Adds 50 ms network latency. No actual external requests. |
 
-リモートコンテキストローダー使用時の性能コストと SSRF 攻撃面を定量化します。
+Quantifies the performance cost and SSRF attack surface of remote context loading.
 
-#### 3. URDNA2015 call limit 有無比較
+#### 3. URDNA2015 Call Limit Comparison
 
-2 / 4 / 6 / 8 ノードのブランクノード循環グラフでポイズングラフを生成し、タイムアウトの有無でレイテンシと保護動作を比較します。
+Generates poisoned graphs with blank node cycles of 2 / 4 / 6 / 8 nodes, comparing latency and protection behavior with and without timeout.
 
-- **タイムアウトなし**: 計算量爆発による DoS を再現
-- **タイムアウトあり (`Promise.race` 2000ms)**: DoS 緩和動作を確認
+- **Without timeout**: Reproduces DoS via combinatorial explosion
+- **With timeout (`Promise.race` 2000 ms)**: Demonstrates DoS mitigation
 
-#### 4. 選択的開示性能比較
+#### 4. Selective Disclosure Performance Comparison
 
-20属性クレデンシャルから N 属性を開示するプレゼンテーション生成レイテンシを比較します。
+Compares presentation generation latency when disclosing N attributes from a 20-attribute credential.
 
-| フォーマット | 開示メカニズム |
+| Format | Disclosure Mechanism |
 |---|---|
-| SD-JWT VC | SHA-256 ハッシュ済みディスクロージャー (`_sd` 配列) — RFC 9901 準拠 |
-| JSON-LD VC | URDNA2015 で派生クレデンシャル (開示属性のみ) を再正規化 |
-| JSON-LD VC (JCS) | JCS で開示属性サブセットのドキュメントを再正規化 |
-| mdoc | IssuerSigned nameSpace から開示要素のみを CBOR エンコード |
+| SD-JWT VC | SHA-256 hashed disclosures (`_sd` array) — RFC 9901 compliant |
+| JSON-LD VC | Re-normalize derived credential (disclosed attributes only) with URDNA2015 |
+| JSON-LD VC (JCS) | Re-canonicalize disclosed attribute subset document with JCS |
+| mdoc | CBOR-encode only disclosed elements from IssuerSigned nameSpace |
 
-#### 5. Ed25519 統一ベンチマーク
+#### 5. Ed25519 Unified Benchmark
 
-通常 ECDSA P-256 を使用する mdoc も EdDSA (Ed25519) で統一計測することで、暗号アルゴリズムの差を排除し、シリアライゼーション形式 (JWT vs JSON-LD vs CBOR) の純粋なオーバーヘッドを分離します。
+By also measuring mdoc (which normally uses ECDSA P-256) with EdDSA (Ed25519), this eliminates cryptographic algorithm differences and isolates the pure serialization overhead of each format (JWT vs JSON-LD vs CBOR).
 
 ---
 
-## 結果レポート
+## Result Report
 
-「📋 結果レポート」タブでは、実行済みのすべてのベンチマーク結果を一覧表示し、以下の形式でエクスポートできます。
+The "📋 Result Report" tab displays all completed benchmark results in a unified view and supports export in the following formats:
 
-| エクスポート形式 | 内容 |
+| Export Format | Content |
 |---|---|
-| Markdown コピー | GitHub / Obsidian 等に貼り付け可能な表形式 |
-| CSV コピー / ダウンロード | Excel / Google Sheets で分析可能 |
-| JSON コピー / ダウンロード | 生データ (全統計フィールド含む) |
+| Markdown copy | Table format for pasting into GitHub / Obsidian / etc. |
+| CSV copy / download | Analyzable in Excel / Google Sheets |
+| JSON copy / download | Raw data (all statistical fields included) |
 
-**レポートに含まれるセクション** (実行済みのものだけ出力):
+**Sections included in the report** (only completed benchmarks are output):
 
-1. テスト実行環境 (ブラウザ / OS / CPU / Go WASM / Pyodide バージョン)
-2. 署名検証速度 (全統計分布)
-3. デシリアライズ複雑性
-4. セキュリティテスト
-5. ライブラリなし vs あり — 言語別比較
-6. シリアライズ速度
-7. 属性数スケーリング
-8. JSON-LD コンテキストローダー比較
-9. URDNA2015 call limit 有無比較
-10. 選択的開示性能比較
-11. Ed25519 統一ベンチマーク
-12. 実際の実行コード (TypeScript / Go / Python)
+1. Test execution environment (browser / OS / CPU / Go WASM / Pyodide versions)
+2. Signature verification speed (full statistical distribution)
+3. Deserialization complexity
+4. Security tests
+5. With vs. without libraries — per-language comparison
+6. Serialization speed
+7. Attribute count scaling
+8. JSON-LD context loader comparison
+9. URDNA2015 call limit comparison
+10. Selective disclosure performance comparison
+11. Ed25519 unified benchmark
+12. Actual execution code (TypeScript / Go / Python)
 
 ---
 
-## ディレクトリ構成
+## Directory Structure
 
 ```
 .
 ├── src/
 │   ├── benchmarks/
-│   │   ├── signatureSpeed.ts            # 署名検証速度ベンチマーク
-│   │   ├── deserializationComplexity.ts # デシリアライズ複雑性
-│   │   ├── normalizationSecurity.ts     # セキュリティテスト
-│   │   ├── noLibrary.ts                 # ライブラリなし実装ベンチマーク
-│   │   └── scalingBenchmarks.ts         # 詳細分析 (属性スケーリング等)
+│   │   ├── signatureSpeed.ts            # Signature verification speed benchmark
+│   │   ├── deserializationComplexity.ts # Deserialization complexity
+│   │   ├── normalizationSecurity.ts     # Security tests
+│   │   ├── noLibrary.ts                 # No-library implementation benchmark
+│   │   └── scalingBenchmarks.ts         # Detailed analysis (attribute scaling, etc.)
 │   ├── components/
-│   │   ├── SpeedResults.tsx             # 署名検証速度タブ
-│   │   ├── ComplexityResults.tsx        # デシリアライズ複雑性タブ
-│   │   ├── SecurityResults.tsx          # セキュリティタブ
-│   │   ├── ImplComparison.tsx           # 実装比較タブ
-│   │   ├── ScalingResults.tsx           # 詳細分析タブ
-│   │   └── ReportView.tsx               # 結果レポートタブ (エクスポート)
+│   │   ├── SpeedResults.tsx             # Signature speed tab
+│   │   ├── ComplexityResults.tsx        # Deserialization complexity tab
+│   │   ├── SecurityResults.tsx          # Security tab
+│   │   ├── ImplComparison.tsx           # Implementation comparison tab
+│   │   ├── ScalingResults.tsx           # Detailed analysis tab
+│   │   └── ReportView.tsx               # Result report tab (export)
 │   ├── data/
-│   │   ├── staticContexts.ts            # 静的埋め込み JSON-LD コンテキスト
-│   │   ├── referenceValues.ts           # Go / Python 参考値
-│   │   └── benchmarkSources.ts          # エクスポート用実行コード
+│   │   ├── staticContexts.ts            # Statically embedded JSON-LD contexts
+│   │   ├── referenceValues.ts           # Go / Python reference values
+│   │   └── benchmarkSources.ts          # Execution code for export
 │   ├── lib/
-│   │   ├── goRunner.ts                  # Go WASM 実行ランナー
-│   │   └── pyodideRunner.ts             # Pyodide (Python) 実行ランナー
+│   │   ├── goRunner.ts                  # Go WASM execution runner
+│   │   └── pyodideRunner.ts             # Pyodide (Python) execution runner
 │   └── types/
-│       └── backendResult.ts             # バックエンド API レスポンス型定義
+│       └── backendResult.ts             # Backend API response type definitions
 ├── server/
-│   ├── index.ts                         # Express サーバー (SSE ジョブキュー)
+│   ├── index.ts                         # Express server (SSE job queue)
 │   └── bench/
-│       ├── nodeSpeed.ts                 # Node.js 署名速度 (process.hrtime.bigint)
-│       ├── nodeComplexity.ts            # Node.js 複雑性計測
-│       ├── nodeSecurity.ts              # Node.js セキュリティテスト
-│       └── speed.py                     # Python 速度計測 (time.perf_counter_ns)
+│       ├── nodeSpeed.ts                 # Node.js signature speed (process.hrtime.bigint)
+│       ├── nodeComplexity.ts            # Node.js complexity measurement
+│       ├── nodeSecurity.ts              # Node.js security tests
+│       └── speed.py                     # Python speed measurement (time.perf_counter_ns)
 ├── go/
 │   └── bench-native/
-│       └── main.go                      # Go WASM ビルドターゲット
+│       └── main.go                      # Go WASM build target
 ├── public/
-│   ├── go-bench.wasm                    # ビルド済み Go WASM バイナリ
-│   └── wasm_exec.js                     # Go WASM ランタイムブリッジ
+│   ├── go-bench.wasm                    # Pre-built Go WASM binary
+│   └── wasm_exec.js                     # Go WASM runtime bridge
 ├── package.json
 ├── vite.config.ts
 └── tsconfig.json
@@ -234,29 +236,29 @@ Go WASM と Python (Pyodide) の計測は「ベンチマーク実行」ボタン
 
 ---
 
-## 使用ライブラリ
+## Libraries Used
 
-| ライブラリ | バージョン | 用途 |
+| Library | Version | Purpose |
 |---|---|---|
-| `jose` | 6.x | SD-JWT VC の JWS 署名・検証 (EdDSA) |
-| `@noble/ed25519` | 2.x | JSON-LD VC の Ed25519 署名・検証 |
+| `jose` | 6.x | JWS signing and verification for SD-JWT VC (EdDSA) |
+| `@noble/ed25519` | 2.x | Ed25519 signing and verification for JSON-LD VC |
 | `@noble/hashes` | 1.x | SHA-256 / SHA-512 |
-| `jsonld` | 8.x | JSON-LD URDNA2015 正規化 |
-| `cbor-x` | 1.x | mdoc の CBOR エンコード・デコード |
-| `recharts` | 2.x | ベンチマーク結果のグラフ描画 |
-| `react` / `react-dom` | 18.x | UI フレームワーク |
-| `express` | 4.x | バックエンドサーバー |
-| `tsx` | — | TypeScript の直接実行 (バックエンド用) |
+| `jsonld` | 8.x | JSON-LD URDNA2015 canonicalization |
+| `cbor-x` | 1.x | CBOR encoding and decoding for mdoc |
+| `recharts` | 2.x | Benchmark result chart rendering |
+| `react` / `react-dom` | 18.x | UI framework |
+| `express` | 4.x | Backend server |
+| `tsx` | — | Direct TypeScript execution (for backend) |
 
-**Python (Pyodide / バックエンド)**: `cryptography`, `PyJWT`, `pyld`, `cbor2`, `cachetools`, `lxml`
+**Python (Pyodide / backend)**: `cryptography`, `PyJWT`, `pyld`, `cbor2`, `cachetools`, `lxml`
 
-**Go**: 標準ライブラリのみ (`crypto/ecdsa`, `crypto/ed25519`, `crypto/sha256`, `encoding/base64`, `crypto/elliptic`)
+**Go**: Standard library only (`crypto/ecdsa`, `crypto/ed25519`, `crypto/sha256`, `encoding/base64`, `crypto/elliptic`)
 
 ---
 
-## Go WASM のビルド方法
+## Building Go WASM
 
-リポジトリにビルド済みの `public/go-bench.wasm` が含まれているため通常はビルド不要です。再ビルドする場合:
+A pre-built `public/go-bench.wasm` is included in the repository, so rebuilding is not normally required. To rebuild:
 
 ```bash
 cd go/bench-native
@@ -265,15 +267,15 @@ GOOS=js GOARCH=wasm go build -o ../../public/go-bench.wasm .
 
 ---
 
-## バックエンドサーバー API
+## Backend Server API
 
-| エンドポイント | メソッド | 説明 |
+| Endpoint | Method | Description |
 |---|---|---|
-| `/api/bench/start` | POST | ベンチマークジョブを開始。`jobId` を返す |
-| `/api/bench/stream/:jobId` | GET | SSE ストリームで進捗・完了を受信 |
-| `/api/bench/result/:jobId` | GET | ジョブ結果をポーリングで取得 |
+| `/api/bench/start` | POST | Start a benchmark job. Returns `jobId`. |
+| `/api/bench/stream/:jobId` | GET | Receive progress and completion via SSE stream. |
+| `/api/bench/result/:jobId` | GET | Poll for job result. |
 
-リクエストボディ例:
+Example request body:
 
 ```json
 {
@@ -288,27 +290,27 @@ GOOS=js GOARCH=wasm go build -o ../../public/go-bench.wasm .
 
 ---
 
-## 設計上の注意点
+## Design Notes
 
-### JSON-LD の `safe` オプション
+### JSON-LD `safe` Option
 
-`jsonld` v8 の `normalize()` はデフォルトで `safe: true` が有効です。本ツールのベンチマークでは `safe: false` を使用する箇所があります。本番実装では `safe: true` のまま使用してください。`safe: true` は未定義用語が署名対象からサイレントに除外されることを防ぎます。
+`jsonld` v8's `normalize()` has `safe: true` enabled by default. Some benchmark paths in this tool use `safe: false`. In production implementations, keep `safe: true`. The `safe: true` flag prevents undefined terms from being silently excluded from the data being signed.
 
-### URDNA2015 の call limit
+### URDNA2015 Call Limit
 
-ポイズングラフ (blank node cycle) により URDNA2015 の計算量が爆発的に増加します。本番実装では必ず call limit またはタイムアウトを設けてください。本ツールでは `Promise.race` + 2000ms タイムアウトで緩和効果を実証しています。
+Poisoned graphs (blank node cycles) cause URDNA2015's computational complexity to explode exponentially. Production implementations must always impose a call limit or timeout. This tool demonstrates mitigation using `Promise.race` with a 2000 ms timeout.
 
-### コンテキストローダーと SSRF
+### Context Loader and SSRF
 
-JSON-LD の `documentLoader` にリモート URL フェッチを許可すると、攻撃者が制御するコンテキストを読み込ませる SSRF 攻撃が可能になります。フロントエンドモードでは静的ローダーのみを使用します。
+Allowing remote URL fetching in the JSON-LD `documentLoader` enables SSRF attacks where an attacker can cause an attacker-controlled context to be loaded. Frontend mode uses only the static loader.
 
-### mdoc の実装範囲
+### mdoc Implementation Scope
 
-本ツールの mdoc 実装はベンチマーク目的のため IssuerSigned の基本パスのみを実装しており、デバイス署名・X.509 証明書チェーン検証・Session Transcript・DeviceResponse の完全な検証フローは省略しています。
+The mdoc implementation in this tool covers only the basic IssuerSigned path for benchmarking purposes. Device signatures, X.509 certificate chain validation, Session Transcript, and the complete DeviceResponse verification flow are omitted.
 
 ---
 
-## 参照規格
+## Reference Standards
 
 - [IETF RFC 9901 — SD-JWT VC](https://www.rfc-editor.org/rfc/rfc9901)
 - [W3C Verifiable Credentials Data Model 2.0](https://www.w3.org/TR/vc-data-model-2.0/)
