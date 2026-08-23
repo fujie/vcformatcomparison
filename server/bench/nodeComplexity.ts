@@ -214,7 +214,7 @@ export async function runNodeComplexity(
 ): Promise<BackendComplexityEntry[]> {
   const results: BackendComplexityEntry[] = []
 
-  onProgress('SD-JWT VC (withLib / jose) パース時間計測中...')
+  onProgress('Measuring parse time: SD-JWT VC (withLib / jose)...')
   const sdWithLib = await sdJwtWithLibComplexity(n)
   results.push({
     format: 'SD-JWT VC', lib: 'withLib',
@@ -224,7 +224,7 @@ export async function runNodeComplexity(
     networkCallDescription: [],
   })
 
-  onProgress('SD-JWT VC (noLib / node:crypto) パース時間計測中...')
+  onProgress('Measuring parse time: SD-JWT VC (noLib / node:crypto)...')
   const sdNoLib = sdJwtNoLibComplexity(n)
   results.push({
     format: 'SD-JWT VC', lib: 'noLib',
@@ -234,17 +234,17 @@ export async function runNodeComplexity(
     networkCallDescription: [],
   })
 
-  onProgress('JSON-LD VC (withLib / jsonld URDNA2015) パース時間計測中...')
+  onProgress('Measuring parse time: JSON-LD VC (withLib / jsonld URDNA2015)...')
   const jlWithLib = await jsonLdWithLibComplexity(Math.min(n, 20))
   results.push({
     format: 'JSON-LD VC', lib: 'withLib',
     parseTimeMs: jlWithLib.avgMs, parseTimeNs: jlWithLib.avgNs, parseIterations: Math.min(n, 20),
     linesOfCode: 28, asyncSteps: 3, cyclomaticComplexity: 7,
     externalNetworkCalls: 1, externalDependencies: ['jsonld@8.x', 'node:crypto'],
-    networkCallDescription: ['@context URL 解決 (キャッシュなし時)'],
+    networkCallDescription: ['@context URL resolution (when not cached)'],
   })
 
-  onProgress('JSON-LD VC (noLib / manual SHA-256) パース時間計測中...')
+  onProgress('Measuring parse time: JSON-LD VC (noLib / manual SHA-256)...')
   const jlNoLib = jsonLdNoLibComplexity(n)
   results.push({
     format: 'JSON-LD VC', lib: 'noLib',
@@ -254,7 +254,7 @@ export async function runNodeComplexity(
     networkCallDescription: [],
   })
 
-  onProgress('mdoc (withLib / cbor-x) パース時間計測中...')
+  onProgress('Measuring parse time: mdoc (withLib / cbor-x)...')
   const mdocLib = await mdocWithLibComplexity(n)
   results.push({
     format: 'mdoc', lib: 'withLib',
@@ -264,7 +264,7 @@ export async function runNodeComplexity(
     networkCallDescription: [],
   })
 
-  onProgress('mdoc (noLib / 手書き CBOR+COSE) パース時間計測中...')
+  onProgress('Measuring parse time: mdoc (noLib / hand-written CBOR+COSE)...')
   const mdocNoLib = mdocNoLibComplexity(n)
   results.push({
     format: 'mdoc', lib: 'noLib',
@@ -274,6 +274,6 @@ export async function runNodeComplexity(
     networkCallDescription: [],
   })
 
-  onProgress('複雑性分析完了')
+  onProgress('Complexity analysis completed')
   return results
 }

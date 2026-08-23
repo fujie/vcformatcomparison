@@ -64,9 +64,9 @@ async function contextInjectionTest(): Promise<{ caught: boolean; detail: string
   }
   try {
     await jsonld.normalize(maliciousDoc, normalizeOpts)
-    return { caught: false, detail: '正規化は成功。@protected なしのコンテキストでは用語の上書きが可能。' }
+    return { caught: false, detail: 'Canonicalization succeeded. Without @protected, terms can be overridden.' }
   } catch (e) {
-    return { caught: true, detail: `例外でブロック: ${(e as Error).message.slice(0, 120)}` }
+    return { caught: true, detail: `Blocked by an exception: ${(e as Error).message.slice(0, 120)}` }
   }
 }
 
@@ -89,9 +89,9 @@ async function algorithmConfusionTest(): Promise<{ caught: boolean; detail: stri
   const noneHeader = btoa(JSON.stringify({ ...header, alg: 'none' })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
   try {
     await jwtVerify(`${noneHeader}.${p64}.`, publicKey)
-    return { caught: false, detail: 'alg:none が受理された — 脆弱' }
+    return { caught: false, detail: 'alg:none was accepted - vulnerable' }
   } catch (e) {
-    return { caught: true, detail: `jwtVerify が alg:none を拒否: ${(e as Error).message.slice(0, 100)}` }
+    return { caught: true, detail: `jwtVerify rejected alg:none: ${(e as Error).message.slice(0, 100)}` }
   }
 }
 
@@ -100,9 +100,9 @@ async function keyConfusionTest(): Promise<{ caught: boolean; detail: string }> 
   const token = await new SignJWT({ sub: 'test', iss: 'https://example.com' }).setProtectedHeader({ alg: 'RS256' }).sign(privateKey)
   try {
     await jwtVerify(token, publicKey, { algorithms: ['EdDSA'] })
-    return { caught: false, detail: 'アルゴリズム混同が成功した — 脆弱' }
+    return { caught: false, detail: 'Algorithm confusion succeeded - vulnerable' }
   } catch (e) {
-    return { caught: true, detail: `alg制限により拒否: ${(e as Error).message.slice(0, 100)}` }
+    return { caught: true, detail: `Rejected by the algorithm allowlist: ${(e as Error).message.slice(0, 100)}` }
   }
 }
 
@@ -129,8 +129,8 @@ async function mdocCborMalleabilityTest(): Promise<{ caught: boolean; detail: st
   return {
     caught: !valid,
     detail: valid
-      ? 'ダイジェスト検証がバイパスされた — 脆弱'
-      : 'ダイジェスト改ざんを正しく検出。SHA-256により保護されている。',
+      ? 'Digest verification was bypassed - vulnerable'
+      : 'Digest tampering was correctly detected; each element is protected by SHA-256.',
   }
 }
 
@@ -151,8 +151,8 @@ async function mdocCoseAlgConfusionTest(): Promise<{ caught: boolean; detail: st
   return {
     caught: !valid,
     detail: valid
-      ? 'COSEアルゴリズム改ざんが受理された — 脆弱'
-      : 'COSE署名検証がアルゴリズム改ざんを検出（Sig_Structureの保護ヘッダーが変わり署名不一致）。',
+      ? 'COSE algorithm tampering was accepted - vulnerable'
+      : 'COSE signature verification detected the algorithm tampering (the protected header is part of Sig_Structure, so the signature no longer matches).',
   }
 }
 
@@ -160,103 +160,103 @@ export async function runSecurityTests(onProgress: (msg: string) => void): Promi
   const results: SecurityTest[] = []
 
   // --- JSON-LD Tests ---
-  onProgress('ポイズングラフ DoS テスト実行中...')
+  onProgress('Running the poison graph DoS test...')
   const poison = await poisonGraphTest()
   results.push({
-    id: 'poison-graph', name: 'ポイズングラフ DoS (URDNA2015)', format: 'JSON-LD VC', category: 'DoS',
+    id: 'poison-graph', name: 'Poison Graph DoS (URDNA2015)', format: 'JSON-LD VC', category: 'DoS',
     severity: poison.ratio > 5 ? 'high' : 'medium',
-    description: '意図的に構成したブランクノードグラフがRDF正規化アルゴリズムを指数時間に追い込む。W3C RDFC-1.0仕様は呼び出し上限を推奨しているが未実装の場合DoS攻撃になる。',
+    description: 'A deliberately constructed blank node graph drives the RDF canonicalization algorithm into exponential time. The W3C RDFC-1.0 specification recommends a call limit; without one, this becomes a DoS vector.',
     result: poison.ratio > 3 ? 'vulnerable' : 'mitigated',
-    details: `ベースライン: ${poison.normalMs.toFixed(1)}ms, ポイズングラフ(20ノード): ${poison.poisonMs.toFixed(1)}ms, 比率: ${poison.ratio.toFixed(1)}x`,
+    details: `Baseline: ${poison.normalMs.toFixed(1)}ms, poison graph (20 nodes): ${poison.poisonMs.toFixed(1)}ms, ratio: ${poison.ratio.toFixed(1)}x`,
     timeMs: poison.poisonMs, normalTimeMs: poison.normalMs,
     cveReferences: ['W3C RDFC-1.0 §4.8.3', 'IETF draft-ietf-oauth-sd-jwt-vc'],
   })
 
-  onProgress('コンテキストインジェクションテスト実行中...')
+  onProgress('Running the context injection test...')
   const injection = await contextInjectionTest()
   results.push({
-    id: 'context-injection', name: 'JSON-LD コンテキストインジェクション', format: 'JSON-LD VC', category: 'ContextHijack',
+    id: 'context-injection', name: 'JSON-LD Context Injection', format: 'JSON-LD VC', category: 'ContextHijack',
     severity: 'high',
-    description: '攻撃者が @context に悪意ある用語定義を追加し "issuer" 等の意味を別の IRI に変更する。@protected が正しく設定されていれば防げるが、不適切な実装では署名済みフィールドが意図と異なるセマンティクスで解釈される。',
+    description: 'An attacker adds malicious term definitions to @context and remaps the meaning of terms such as "issuer" to a different IRI. Correct use of @protected prevents this, but a careless implementation interprets signed fields with unintended semantics.',
     result: injection.caught ? 'mitigated' : 'partial',
     details: injection.detail,
     cveReferences: ['json-ld.org#213', 'W3C Data Integrity 1.1 §4.3.2'],
   })
 
-  onProgress('SSRF攻撃面を分析中...')
+  onProgress('Analyzing the SSRF attack surface...')
   const ssrfDoc = { '@context': ['https://www.w3.org/2018/credentials/v1', 'https://attacker.internal/evil.json', 'http://169.254.169.254/latest/meta-data/'], type: 'VerifiableCredential' }
   const ssrf = countSsrfSurface(ssrfDoc)
   results.push({
-    id: 'ssrf-context', name: 'リモートコンテキスト経由 SSRF', format: 'JSON-LD VC', category: 'SSRF',
+    id: 'ssrf-context', name: 'SSRF via Remote Context', format: 'JSON-LD VC', category: 'SSRF',
     severity: 'critical',
-    description: '@context にはリモート URL を指定でき、JSON-LD プロセッサはデフォルトで HTTP リクエストを送信する。攻撃者はクラウドメタデータエンドポイント等を @context に含め SSRF を実行できる。',
+    description: '@context may reference a remote URL, and a JSON-LD processor issues HTTP requests by default. An attacker can place a cloud metadata endpoint in @context and perform SSRF.',
     result: 'vulnerable',
-    details: `サンプルに ${ssrf.count} 個のリモートURL。危険な例: ${ssrf.urls.slice(1).join(', ')}。Document Loader で許可リスト検証が必須。`,
+    details: `${ssrf.count} remote URLs in the sample. Dangerous example: ${ssrf.urls.slice(1).join(', ')}. Allowlist validation in the document loader is mandatory.`,
     cveReferences: ['json-ld.org#213', 'OWASP SSRF (A10:2021)'],
   })
 
   results.push({
-    id: 'no-normalization-jsonld-attack', name: '正規化なし (SD-JWT / mdoc)', format: 'Both', category: 'DoS',
+    id: 'no-normalization-jsonld-attack', name: 'No canonicalization (SD-JWT / mdoc)', format: 'Both', category: 'DoS',
     severity: 'none',
-    description: 'SD-JWT VC と mdoc は JSON-LD 正規化を使用しないため、ポイズングラフ DoS・コンテキストインジェクション・SSRF は発生しない。',
+    description: 'SD-JWT VC and mdoc do not use JSON-LD canonicalization, so poison graph DoS, context injection and SSRF do not arise.',
     result: 'not-applicable',
-    details: '正規化ステップが存在しないためこのカテゴリの攻撃面はゼロ。',
+    details: 'There is no canonicalization step, so the attack surface in this category is zero.',
   })
 
   // --- SD-JWT Tests ---
-  onProgress('JWT alg:none 攻撃テスト実行中...')
+  onProgress('Running the JWT alg:none attack test...')
   const algNone = await algorithmConfusionTest()
   results.push({
-    id: 'alg-none', name: 'alg:none 攻撃 (SD-JWT VC)', format: 'SD-JWT VC', category: 'AlgorithmConfusion',
+    id: 'alg-none', name: 'alg:none Attack (SD-JWT VC)', format: 'SD-JWT VC', category: 'AlgorithmConfusion',
     severity: 'critical',
-    description: 'JWT ヘッダーの alg を none に改ざんしたトークンを検証者が受理するかテスト。RFC 8725 準拠の実装では拒否される。',
+    description: 'Tests whether the verifier accepts a token whose JWT header alg has been changed to none. Implementations conforming to RFC 8725 reject it.',
     result: algNone.caught ? 'mitigated' : 'vulnerable',
     details: algNone.detail,
     cveReferences: ['CVE-2015-9235', 'RFC 8725 §3.1'],
   })
 
-  onProgress('アルゴリズム混同テスト実行中...')
+  onProgress('Running the algorithm confusion test...')
   const keyConf = await keyConfusionTest()
   results.push({
-    id: 'key-confusion', name: 'アルゴリズム混同 RS256→EdDSA (SD-JWT VC)', format: 'SD-JWT VC', category: 'AlgorithmConfusion',
+    id: 'key-confusion', name: 'Algorithm Confusion RS256->EdDSA (SD-JWT VC)', format: 'SD-JWT VC', category: 'AlgorithmConfusion',
     severity: 'high',
-    description: 'RS256 で署名されたトークンを EdDSA として検証させる。検証側でアルゴリズムを明示制限している場合は防御できる。',
+    description: 'Has a token signed with RS256 verified as EdDSA. Explicitly restricting the accepted algorithms on the verifier side prevents this.',
     result: keyConf.caught ? 'mitigated' : 'vulnerable',
     details: keyConf.detail,
     cveReferences: ['CVE-2016-10555', 'RFC 7518 §8.5'],
   })
 
   // --- mdoc Tests ---
-  onProgress('mdoc データ改ざん検出テスト実行中...')
+  onProgress('Running the mdoc data tampering detection test...')
   const mdocMall = await mdocCborMalleabilityTest()
   results.push({
-    id: 'mdoc-digest-tamper', name: 'mdoc データ要素改ざん検出', format: 'mdoc', category: 'CborMalleability',
+    id: 'mdoc-digest-tamper', name: 'mdoc Data Element Tampering Detection', format: 'mdoc', category: 'CborMalleability',
     severity: 'high',
-    description: 'mdoc の nameSpaces 内のデータ要素値を改ざんし、MSO のダイジェスト検証で検出されるかテスト。各要素は SHA-256 ダイジェストで個別に保護されている。',
+    description: 'Tampers with a data element value inside the mdoc nameSpaces and tests whether MSO digest verification detects it. Each element is individually protected by a SHA-256 digest.',
     result: mdocMall.caught ? 'mitigated' : 'vulnerable',
     details: mdocMall.detail,
     cveReferences: ['ISO 18013-5 §9.1.2.4'],
   })
 
-  onProgress('mdoc COSE ヘッダー改ざんテスト実行中...')
+  onProgress('Running the mdoc COSE header tampering test...')
   const coseAlg = await mdocCoseAlgConfusionTest()
   results.push({
-    id: 'mdoc-cose-alg', name: 'COSE プロテクトヘッダー改ざん (mdoc)', format: 'mdoc', category: 'AlgorithmConfusion',
+    id: 'mdoc-cose-alg', name: 'COSE Protected Header Tampering (mdoc)', format: 'mdoc', category: 'AlgorithmConfusion',
     severity: 'high',
-    description: 'COSE_Sign1 のプロテクトヘッダーの alg を ES256(-7) から none(0) に改ざんし、検証をバイパスできるかテスト。Sig_Structure にプロテクトヘッダーが含まれるため署名不一致になるはず。',
+    description: 'Changes alg in the COSE_Sign1 protected header from ES256(-7) to none(0) and tests whether verification can be bypassed. Because the protected header is part of Sig_Structure, the signature should no longer match.',
     result: coseAlg.caught ? 'mitigated' : 'vulnerable',
     details: coseAlg.detail,
     cveReferences: ['RFC 9052 §4.4', 'ISO 18013-5 §9.1.2.4'],
   })
 
   results.push({
-    id: 'mdoc-no-ssrf', name: 'SSRF なし・ネットワーク取得なし (mdoc)', format: 'mdoc', category: 'SSRF',
+    id: 'mdoc-no-ssrf', name: 'No SSRF / No Network Retrieval (mdoc)', format: 'mdoc', category: 'SSRF',
     severity: 'none',
-    description: 'mdoc は CBOR バイナリフォーマットであり、外部 URL を参照するコンテキスト機構を持たない。JSON-LD の @context のような SSRF 攻撃面は存在しない。',
+    description: 'mdoc is a CBOR binary format with no context mechanism that references external URLs, so the SSRF attack surface of JSON-LD @context does not exist.',
     result: 'not-applicable',
-    details: '外部ネットワーク取得が構造的に発生しないためこのリスクはゼロ。',
+    details: 'External network retrieval cannot occur structurally, so this risk is zero.',
   })
 
-  onProgress('完了')
+  onProgress('Done')
   return results
 }

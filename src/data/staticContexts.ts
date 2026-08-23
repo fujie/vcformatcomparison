@@ -71,7 +71,7 @@ export function makeStaticContextLoader() {
       return { contextUrl: null, document: cache[url], documentUrl: url }
     }
     throw new Error(
-      `Context not pre-loaded: ${url}\n(本番環境ではここでネットワーク取得が発生し、SSRF攻撃面となる)`,
+      `Context not pre-loaded: ${url}\n(in production this would trigger a network fetch and become an SSRF attack surface)`,
     )
   }
 }

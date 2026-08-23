@@ -46,79 +46,79 @@ async function deserializeJsonLdVc(document: Record<string, unknown>, signature:
   return document
 }
 
-export const SD_JWT_CODE_SNIPPET = `// SD-JWT VC デシリアライズ（~10行）
+export const SD_JWT_CODE_SNIPPET = `// SD-JWT VC deserialization (~10 lines)
 async function parseSDJwtVC(token: string, pubKey: CryptoKey) {
-  // 1. コンパクト表現を分割
+  // 1. split the compact serialization
   const [header64, payload64, sig64] = token.split('.')
 
-  // 2. ヘッダー検証（許可リスト）
+  // 2. header validation (allowlist)
   const header = JSON.parse(atob(header64))
   if (!['EdDSA','ES256'].includes(header.alg))
     throw new Error('Unsupported algorithm')
 
-  // 3. 署名検証 + クレーム取得（1 API呼び出し）
+  // 3. signature verification + claim retrieval (1 API call)
   const { payload } = await jwtVerify(token, pubKey)
 
-  // 4. 必須クレーム確認
+  // 4. required claim check
   if (!payload.iss || !payload.vct) throw new Error('Invalid VC')
   return payload
 }`
 
-export const JSONLD_CODE_SNIPPET = `// JSON-LD VC デシリアライズ（~35行）
+export const JSONLD_CODE_SNIPPET = `// JSON-LD VC deserialization (~35 lines)
 async function parseJsonLdVC(doc: object, sig: Uint8Array, pubKey: Uint8Array) {
-  const loader = buildDocumentLoader() // 外部URL取得（SSRF面）
+  const loader = buildDocumentLoader() // external URL fetch (SSRF surface)
 
-  // 1. @context 検証
+  // 1. @context validation
   if (!doc['@context'].includes(VC_CONTEXT_URL))
     throw new Error('Missing context')
 
-  // 2. proof フィールドを除去
+  // 2. strip the proof field
   const { proof, ...docWithoutProof } = doc
 
-  // 3. JSON-LD エクスパンション（ネットワーク取得発生）
+  // 3. JSON-LD expansion (triggers network fetches)
   await jsonld.expand(docWithoutProof, { documentLoader: loader })
 
-  // 4. URDNA2015 RDF正規化（ブランクノード同定 = グラフ同型問題）
-  //    → ポイズングラフで指数時間 DoS になりうる
+  // 4. URDNA2015 RDF canonicalization (blank node labeling = graph isomorphism)
+  //    -> a poison graph can turn this into exponential-time DoS
   const normalized = await jsonld.normalize(docWithoutProof, {
     algorithm: 'URDNA2015', format: 'application/n-quads',
     documentLoader: loader,
   }) as string
 
-  // 5. SHA-256ハッシュ → 6. Ed25519署名検証
+  // 5. SHA-256 hash -> 6. Ed25519 signature verification
   const hash = await sha256(normalized)
   if (!await ed25519Verify(sig, hash, pubKey)) throw new Error('Invalid')
 
-  // 7. VCスキーマ検証
+  // 7. VC schema validation
   if (!doc['credentialSubject']) throw new Error('Missing credentialSubject')
   return doc
 }`
 
-export const MDOC_CODE_SNIPPET = `// mdoc (ISO 18013-5) デシリアライズ（~25行）
+export const MDOC_CODE_SNIPPET = `// mdoc (ISO 18013-5) deserialization (~25 lines)
 async function parseMdoc(mdocBytes: Uint8Array, pubKey: CryptoKey) {
-  // 1. CBOR デコード（バイナリ → JS オブジェクト）
+  // 1. CBOR decode (binary -> JS object)
   const doc = decode(mdocBytes)
   const { issuerAuth, nameSpaces } = doc.issuerSigned
 
-  // 2. COSE_Sign1 構造展開
+  // 2. expand the COSE_Sign1 structure
   const [protectedHeader, , msoPayload, signature] = issuerAuth
 
-  // 3. COSE プロテクトヘッダーのアルゴリズム検証
+  // 3. verify the algorithm in the COSE protected header
   const alg = decode(protectedHeader).get(1)  // alg = -7 (ES256)
   if (alg !== ALG_ES256) throw new Error('Unexpected algorithm')
 
-  // 4. Sig_Structure 構築 → ECDSA P-256 署名検証
+  // 4. build Sig_Structure -> ECDSA P-256 signature verification
   const sigStructure = encode(['Signature1', protectedHeader,
                                new Uint8Array(0), msoPayload])
   const valid = await crypto.subtle.verify(
     { name: 'ECDSA', hash: 'SHA-256' }, pubKey, signature, sigStructure)
   if (!valid) throw new Error('COSE signature invalid')
 
-  // 5. MSO（Mobile Security Object）デコード
+  // 5. decode the MSO (Mobile Security Object)
   const mso = decode(msoPayload)
   const storedDigests = mso.valueDigests['org.iso.18013.5.1']
 
-  // 6. 各データ要素の SHA-256 ダイジェスト検証
+  // 6. verify the SHA-256 digest of every data element
   for (const [i, itemBytes] of nameSpaces['org.iso.18013.5.1'].entries()) {
     const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', itemBytes))
     if (!digest.every((b, j) => b === storedDigests[i][j]))
@@ -159,7 +159,7 @@ export async function measureDeserializationTime(iterations = 50): Promise<{ sdJ
 }
 
 export async function runComplexityAnalysis(onProgress: (msg: string) => void): Promise<ComplexityMetric[]> {
-  onProgress('デシリアライズ時間を計測中...')
+  onProgress('Measuring deserialization time...')
   const { sdJwtMs, jsonLdMs, mdocMs } = await measureDeserializationTime(50)
 
   const results: ComplexityMetric[] = [
@@ -169,17 +169,17 @@ export async function runComplexityAnalysis(onProgress: (msg: string) => void): 
       asyncSteps: 1,
       externalDependencies: ['jose'],
       cyclomaticComplexity: 3,
-      branchPoints: ['alg許可リスト検証', 'iss欠落チェック', 'vct欠落チェック'],
+      branchPoints: ['alg allowlist check', 'missing iss check', 'missing vct check'],
       externalNetworkCalls: 0,
       networkCallDescription: [],
       parseTimeMs: sdJwtMs,
       parseIterations: 50,
       codeSnippet: SD_JWT_CODE_SNIPPET,
       steps: [
-        { name: '1. トークン分割', description: '"." でheader/payload/signatureに分割' },
-        { name: '2. ヘッダー検証', description: 'alg を許可リストで検証' },
-        { name: '3. 署名検証', description: 'jwtVerify() で JWS 検証（1 API呼び出し）' },
-        { name: '4. クレーム検証', description: 'iss / vct / exp など必須クレームを確認' },
+        { name: '1. Split token', description: 'split into header/payload/signature on "."' },
+        { name: '2. Header validation', description: 'validate alg against an allowlist' },
+        { name: '3. Signature verification', description: 'verify the JWS with jwtVerify() (1 API call)' },
+        { name: '4. Claim validation', description: 'check required claims such as iss / vct / exp' },
       ],
     },
     {
@@ -188,20 +188,20 @@ export async function runComplexityAnalysis(onProgress: (msg: string) => void): 
       asyncSteps: 4,
       externalDependencies: ['jsonld', 'DocumentLoader', 'sha256', 'ed25519'],
       cyclomaticComplexity: 8,
-      branchPoints: ['@context存在確認', 'proof存在チェック', 'expand失敗分岐', 'normalize失敗分岐', '空正規化結果チェック', '署名検証失敗', 'credentialSubject欠落', 'type検証'],
+      branchPoints: ['@context presence', 'proof presence', 'expand failure', 'normalize failure', 'empty canonicalization result', 'signature verification failure', 'missing credentialSubject', 'type validation'],
       externalNetworkCalls: 2,
-      networkCallDescription: ['@context URL のフェッチ（SSRFリスク）', '追加コンテキストURL（cryptoスイート用）のフェッチ'],
+      networkCallDescription: ['fetch of the @context URL (SSRF risk)', 'fetch of an additional context URL (for the cryptosuite)'],
       parseTimeMs: jsonLdMs,
       parseIterations: 50,
       codeSnippet: JSONLD_CODE_SNIPPET,
       steps: [
-        { name: '1. @context 検証', description: '必須コンテキストURLの確認' },
-        { name: '2. proof 分離', description: '署名対象外のproofを除去' },
-        { name: '3. JSON-LD エクスパンション', description: '外部コンテキストを解決・展開', risk: 'SSRF / DNSポイズニング' },
-        { name: '4. URDNA2015 正規化', description: 'ブランクノード同定 = グラフ同型問題', risk: 'ポイズングラフ → DoS（指数時間）' },
-        { name: '5. SHA-256 ハッシュ', description: '正規化N-Quadsをハッシュ化' },
-        { name: '6. 署名検証', description: 'Ed25519 署名を検証' },
-        { name: '7. VCスキーマ検証', description: 'credentialSubject等の検証' },
+        { name: '1. @context validation', description: 'check the required context URLs' },
+        { name: '2. Separate proof', description: 'remove the proof that is not part of the signed payload' },
+        { name: '3. JSON-LD expansion', description: 'resolve and expand external contexts', risk: 'SSRF / DNS poisoning' },
+        { name: '4. URDNA2015 canonicalization', description: 'blank node labeling = graph isomorphism', risk: 'poison graph -> DoS (exponential time)' },
+        { name: '5. SHA-256 hash', description: 'hash the canonical N-Quads' },
+        { name: '6. Signature verification', description: 'verify the Ed25519 signature' },
+        { name: '7. VC schema validation', description: 'validate credentialSubject and friends' },
       ],
     },
     {
@@ -210,23 +210,23 @@ export async function runComplexityAnalysis(onProgress: (msg: string) => void): 
       asyncSteps: 2,
       externalDependencies: ['cbor-x (CBOR)', 'WebCrypto ECDSA P-256'],
       cyclomaticComplexity: 5,
-      branchPoints: ['CBOR デコードエラー', 'COSEアルゴリズム検証', 'COSE署名検証失敗', 'ダイジェスト不一致', '要素数不一致'],
+      branchPoints: ['CBOR decode error', 'COSE algorithm validation', 'COSE signature verification failure', 'digest mismatch', 'element count mismatch'],
       externalNetworkCalls: 0,
       networkCallDescription: [],
       parseTimeMs: mdocMs,
       parseIterations: 50,
       codeSnippet: MDOC_CODE_SNIPPET,
       steps: [
-        { name: '1. CBOR デコード', description: 'バイナリ → JS オブジェクト（cbor-x）' },
-        { name: '2. COSE_Sign1 展開', description: '[protected_header, {}, payload, sig] の配列分解' },
-        { name: '3. アルゴリズム検証', description: 'COSEヘッダーの alg(-7=ES256) を確認' },
-        { name: '4. COSE署名検証', description: 'Sig_Structure を構築しECDSA P-256で検証' },
-        { name: '5. MSO デコード', description: 'Mobile Security Object の CBOR デコード' },
-        { name: '6. ダイジェスト検証', description: '各データ要素の SHA-256 ダイジェストを個別検証', risk: 'CBOR非決定性エンコードで回避可能（実装依存）' },
+        { name: '1. CBOR decode', description: 'binary -> JS object (cbor-x)' },
+        { name: '2. Expand COSE_Sign1', description: 'destructure the [protected_header, {}, payload, sig] array' },
+        { name: '3. Algorithm validation', description: 'check alg(-7=ES256) in the COSE header' },
+        { name: '4. COSE signature verification', description: 'build Sig_Structure and verify with ECDSA P-256' },
+        { name: '5. MSO decode', description: 'CBOR decode of the Mobile Security Object' },
+        { name: '6. Digest verification', description: 'verify the SHA-256 digest of each data element individually', risk: 'may be circumvented by non-deterministic CBOR encoding (implementation dependent)' },
       ],
     },
   ]
 
-  onProgress('完了')
+  onProgress('Done')
   return results
 }

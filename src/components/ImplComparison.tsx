@@ -28,10 +28,10 @@ function NoLibBenchmark({ onRun, running, results, serialResults, progress }: Be
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: 48 }}>
       <div style={{ fontSize: 36 }}>🧪</div>
       <p style={{ color: '#64748b', fontSize: 14, textAlign: 'center', maxWidth: 480, lineHeight: 1.6 }}>
-        Web Crypto API のみで実装した SD-JWT VC・JSON-LD VC・mdoc の署名速度をライブラリあり版と比較します。<br/>
-        JSON-LD VC のライブラリなし実装は、blank node のない資格情報向けに URDNA2015 を静的コンテキスト展開 + N-Quads ソートで簡略実装しています。
+        Compares the signing speed of SD-JWT VC, JSON-LD VC and mdoc implemented with the Web Crypto API alone against the with-library versions.<br/>
+        The without-library JSON-LD VC implementation simplifies URDNA2015 to static context expansion + N-Quads sorting, which is valid for credentials without blank nodes.
       </p>
-      <button onClick={onRun} style={btnStyle}>ベンチマーク実行</button>
+      <button onClick={onRun} style={btnStyle}>Run benchmark</button>
     </div>
   )
 
@@ -85,29 +85,29 @@ function NoLibBenchmark({ onRun, running, results, serialResults, progress }: Be
 
       {/* ── Why is mdoc slower despite being binary? ── */}
       <div style={{ ...panelStyle, borderColor: '#f59e0b50', background: '#1e293b' }}>
-        <h3 style={{ ...sectionTitle, color: '#fbbf24' }}>💡 バイナリなのに mdoc が遅い理由</h3>
+        <h3 style={{ ...sectionTitle, color: '#fbbf24' }}>💡 Why mdoc is slower despite being binary</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12, fontSize: 12, color: '#94a3b8', lineHeight: 1.7 }}>
           <div style={{ background: '#0f172a', borderRadius: 8, padding: '10px 14px' }}>
-            <div style={{ color: '#60a5fa', fontWeight: 600, marginBottom: 6 }}>① 署名アルゴリズムの差</div>
-            <div>SD-JWT VC: <span style={{ color: '#4ade80' }}>EdDSA (Ed25519)</span> — 非常に高速な楕円曲線署名</div>
-            <div>mdoc: <span style={{ color: '#f87171' }}>ECDSA P-256</span> — Ed25519 より 2〜4倍コストが高い</div>
-            <div style={{ marginTop: 6, color: '#64748b' }}>暗号演算がボトルネックになる場合、シリアライズ形式より<strong style={{ color: '#fbbf24' }}>アルゴリズム選択</strong>が支配的</div>
+            <div style={{ color: '#60a5fa', fontWeight: 600, marginBottom: 6 }}>1. Signature algorithm</div>
+            <div>SD-JWT VC: <span style={{ color: '#4ade80' }}>EdDSA (Ed25519)</span> — a very fast elliptic curve signature</div>
+            <div>mdoc: <span style={{ color: '#f87171' }}>ECDSA P-256</span> — 2-4x more expensive than Ed25519</div>
+            <div style={{ marginTop: 6, color: '#64748b' }}>When cryptography is the bottleneck, the <strong style={{ color: '#fbbf24' }}>algorithm choice</strong> dominates the serialization format</div>
           </div>
           <div style={{ background: '#0f172a', borderRadius: 8, padding: '10px 14px' }}>
-            <div style={{ color: '#34d399', fontWeight: 600, marginBottom: 6 }}>② per-element ハッシュの追加コスト</div>
-            <div>mdoc は各データ要素を個別に SHA-256 ハッシュ</div>
-            <div>今回のテスト: 8フィールド → <span style={{ color: '#f87171' }}>SHA-256 × 8回</span> 追加</div>
-            <div style={{ marginTop: 6, color: '#64748b' }}>これが選択的開示の完全性保証コスト（完全性 ↑ 、速度 ↓）</div>
+            <div style={{ color: '#34d399', fontWeight: 600, marginBottom: 6 }}>2. Extra cost of per-element hashing</div>
+            <div>mdoc hashes every data element individually with SHA-256</div>
+            <div>This test: 8 fields → <span style={{ color: '#f87171' }}>8 extra SHA-256 operations</span></div>
+            <div style={{ marginTop: 6, color: '#64748b' }}>That is the integrity cost of selective disclosure (integrity up, speed down)</div>
           </div>
           <div style={{ background: '#0f172a', borderRadius: 8, padding: '10px 14px' }}>
-            <div style={{ color: '#a78bfa', fontWeight: 600, marginBottom: 6 }}>③ バイナリの利点が活きる場面</div>
-            <div>CBOR は <strong style={{ color: '#4ade80' }}>シリアライズ/デシリアライズ速度・ペイロードサイズ</strong> で優位</div>
+            <div style={{ color: '#a78bfa', fontWeight: 600, marginBottom: 6 }}>3. Where the binary format pays off</div>
+            <div>CBOR wins on <strong style={{ color: '#4ade80' }}>serialization/deserialization speed and payload size</strong></div>
             <div style={{ marginTop: 4 }}>
               {sdSize > 0 && mdocSize > 0 && (
-                <span>同じ内容: SD-JWT <span style={{ color: '#f87171' }}>{sdSize}B</span> vs mdoc <span style={{ color: '#4ade80' }}>{mdocSize}B</span> ({((1 - mdocSize/sdSize)*100).toFixed(0)}% 削減)</span>
+                <span>Same content: SD-JWT <span style={{ color: '#f87171' }}>{sdSize}B</span> vs mdoc <span style={{ color: '#4ade80' }}>{mdocSize}B</span> ({((1 - mdocSize/sdSize)*100).toFixed(0)}% smaller)</span>
               )}
             </div>
-            <div style={{ marginTop: 6, color: '#64748b' }}>QRコード・BLE転送など帯域制約がある場面でバイナリが有利</div>
+            <div style={{ marginTop: 6, color: '#64748b' }}>Binary wins where bandwidth is constrained, such as QR codes and BLE transfer</div>
           </div>
         </div>
       </div>
@@ -120,13 +120,13 @@ function NoLibBenchmark({ onRun, running, results, serialResults, progress }: Be
             <div style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: FMT_COLORS[r.format] + '20', color: FMT_COLORS[r.format] }}>{r.format}</span>
               <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: r.mode === 'noLib' ? '#f472b620' : '#94a3b820', color: r.mode === 'noLib' ? '#f472b6' : '#94a3b8' }}>
-                {r.mode === 'noLib' ? 'ライブラリなし' : 'ライブラリあり'}
+                {r.mode === 'noLib' ? 'Without library' : 'With library'}
               </span>
               <span style={{ fontSize: 10, color: '#475569' }}>{r.operation}</span>
             </div>
             <div style={{ fontSize: 24, fontWeight: 700, color: r.mode === 'noLib' ? '#f472b6' : '#94a3b8' }}>{r.opsPerSec.toFixed(0)}</div>
             <div style={{ fontSize: 10, color: '#64748b' }}>ops/sec</div>
-            <div style={{ fontSize: 12, color: '#cbd5e1', marginTop: 4 }}>平均 {r.avgMs.toFixed(3)} ms</div>
+            <div style={{ fontSize: 12, color: '#cbd5e1', marginTop: 4 }}>mean {r.avgMs.toFixed(3)} ms</div>
             {r.stdDevMs != null && (
               <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
                 σ {r.stdDevMs.toFixed(3)} ms &nbsp;|&nbsp; 95%CI ±{r.ci95Ms?.toFixed(3)} ms
@@ -142,11 +142,11 @@ function NoLibBenchmark({ onRun, running, results, serialResults, progress }: Be
       </div>
 
       <div style={panelStyle}>
-        <h3 style={sectionTitle}>署名速度: ライブラリあり vs ライブラリなし（ops/sec）</h3>
+        <h3 style={sectionTitle}>Signing speed: with vs. without library (ops/sec)</h3>
         {cryptoRatio > 0 && (
           <p style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
-            SD-JWT VC (EdDSA) は mdoc (ECDSA P-256) より署名で <span style={{ color: '#fbbf24', fontWeight: 700 }}>{cryptoRatio.toFixed(1)}x</span> 高速 —
-            これはアルゴリズムの差であり、フォーマットのバイナリ/テキストの差ではありません
+            SD-JWT VC (EdDSA) signs <span style={{ color: '#fbbf24', fontWeight: 700 }}>{cryptoRatio.toFixed(1)}x</span> faster than mdoc (ECDSA P-256) —
+            this is an algorithm difference, not a binary-vs-text format difference
           </p>
         )}
         <ResponsiveContainer width="100%" height={260}>
@@ -155,8 +155,8 @@ function NoLibBenchmark({ onRun, running, results, serialResults, progress }: Be
             <XAxis dataKey="shortLabel" tick={{ fill: '#94a3b8', fontSize: 10 }} angle={-20} textAnchor="end" />
             <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} />
             <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }} labelStyle={{ color: '#e2e8f0' }}
-              formatter={(v: number, name: string) => [`${v.toFixed(0)} ops/sec`, name === 'withLib' ? 'ライブラリあり' : 'ライブラリなし']} />
-            <Legend formatter={(v) => v === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'} wrapperStyle={{ color: '#94a3b8', fontSize: 12 }} />
+              formatter={(v: number, name: string) => [`${v.toFixed(0)} ops/sec`, name === 'withLib' ? 'With library' : 'Without library']} />
+            <Legend formatter={(v) => v === 'withLib' ? 'With library' : 'Without library'} wrapperStyle={{ color: '#94a3b8', fontSize: 12 }} />
             <Bar dataKey="withLib" fill={MODE_COLORS.withLib} radius={[3, 3, 0, 0]} />
             <Bar dataKey="noLib"   fill={MODE_COLORS.noLib}   radius={[3, 3, 0, 0]} />
           </BarChart>
@@ -166,9 +166,9 @@ function NoLibBenchmark({ onRun, running, results, serialResults, progress }: Be
       {/* ── Serialization-only benchmark ── */}
       {serialResults && serialResults.length > 0 && (
         <div style={panelStyle}>
-          <h3 style={sectionTitle}>シリアライズ速度（暗号なし）— CBOR vs JSON vs 正規化</h3>
+          <h3 style={sectionTitle}>Serialization speed (no cryptography) — CBOR vs JSON vs canonicalization</h3>
           <p style={{ fontSize: 12, color: '#64748b', marginBottom: 14 }}>
-            署名・ハッシュを除いたエンコード/デコード速度の純粋な比較。ここでは CBOR のバイナリ優位性と JSON-LD 正規化のコストが現れます。
+            A pure comparison of encode/decode speed excluding signing and hashing. The binary advantage of CBOR and the cost of JSON-LD canonicalization show up here.
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 16 }}>
             {serialResults.map(r => {
@@ -180,7 +180,7 @@ function NoLibBenchmark({ onRun, running, results, serialResults, progress }: Be
                   </div>
                   <div style={{ fontSize: 20, fontWeight: 700, color }}>{r.opsPerSec.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}</div>
                   <div style={{ fontSize: 10, color: '#64748b' }}>ops/sec</div>
-                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>ペイロード {r.payloadSizeBytes} bytes</div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>payload {r.payloadSizeBytes} bytes</div>
                   {r.stdDevMs != null && (
                     <div style={{ fontSize: 10, color: '#475569', marginTop: 2 }}>
                       σ {r.stdDevMs.toFixed(4)} ms / p95 {r.p95Ms?.toFixed(4)} ms
@@ -192,7 +192,7 @@ function NoLibBenchmark({ onRun, running, results, serialResults, progress }: Be
           </div>
 
           {/* Encode/decode comparison chart */}
-          <h4 style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>エンコード・デコード比較 (ops/sec)</h4>
+          <h4 style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>Encode / decode comparison (ops/sec)</h4>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={serialChartData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
@@ -209,14 +209,14 @@ function NoLibBenchmark({ onRun, running, results, serialResults, progress }: Be
 
           {/* Normalization comparison chart */}
           {normalizeChartData.length > 0 && <>
-            <h4 style={{ fontSize: 12, color: '#94a3b8', margin: '16px 0 8px' }}>正規化速度比較 (ops/sec)</h4>
+            <h4 style={{ fontSize: 12, color: '#94a3b8', margin: '16px 0 8px' }}>Canonicalization speed (ops/sec)</h4>
             <ResponsiveContainer width="100%" height={180}>
               <BarChart data={normalizeChartData} layout="vertical" margin={{ top: 4, right: 80, left: 0, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                 <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : String(v)} />
                 <YAxis type="category" dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11 }} width={130} />
                 <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
-                  formatter={(v: number) => [`${v.toLocaleString()} ops/sec`, '正規化速度']} />
+                  formatter={(v: number) => [`${v.toLocaleString()} ops/sec`, 'Canonicalization speed']} />
                 <Bar dataKey="opsPerSec" radius={[0,3,3,0]}>
                   {normalizeChartData.map((e, i) => (
                     <Cell key={i} fill={i === 0 ? '#f59e0b' : '#fb923c'} />
@@ -228,15 +228,15 @@ function NoLibBenchmark({ onRun, running, results, serialResults, progress }: Be
 
           {sdSize > 0 && mdocSize > 0 && (
             <p style={{ fontSize: 12, color: '#64748b', marginTop: 10 }}>
-              ペイロードサイズ: SD-JWT VC <span style={{ color: '#f87171' }}>{sdSize} bytes (テキスト)</span> vs mdoc <span style={{ color: '#4ade80' }}>{mdocSize} bytes (バイナリ)</span> — {((1 - mdocSize/sdSize)*100).toFixed(0)}% 削減。
-              シリアライズ速度もCBORが<span style={{ color: '#34d399', fontWeight: 600 }}> ✓ 高速</span>。署名の遅さはアルゴリズムの問題。
+              Payload size: SD-JWT VC <span style={{ color: '#f87171' }}>{sdSize} bytes (text)</span> vs mdoc <span style={{ color: '#4ade80' }}>{mdocSize} bytes (binary)</span> — {((1 - mdocSize/sdSize)*100).toFixed(0)}% smaller.
+              CBOR is also <span style={{ color: '#34d399', fontWeight: 600 }}> ✓ faster</span> to serialize. The slower signing is an algorithm issue.
             </p>
           )}
         </div>
       )}
 
       <div style={{ textAlign: 'right' }}>
-        <button onClick={onRun} style={{ ...btnStyle, fontSize: 12, padding: '6px 14px' }}>再実行</button>
+        <button onClick={onRun} style={{ ...btnStyle, fontSize: 12, padding: '6px 14px' }}>Run again</button>
       </div>
     </div>
   )
@@ -256,8 +256,8 @@ function LanguageView() {
   const langs: Lang[]   = ['TypeScript', 'Go', 'Python']
   const fmts: FmtKey[]  = ['SD-JWT VC', 'JSON-LD VC', 'mdoc']
   const modes: { id: Mode; label: string }[] = [
-    { id: 'withLib', label: 'ライブラリあり' },
-    { id: 'noLib',   label: 'ライブラリなし' },
+    { id: 'withLib', label: 'With library' },
+    { id: 'noLib',   label: 'Without library' },
   ]
 
   const LANG_COLORS: Record<Lang, string>   = { TypeScript: '#60a5fa', Go: '#34d399', Python: '#f59e0b' }
@@ -286,14 +286,14 @@ function LanguageView() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
             <div>
               <h3 style={{ color: LANG_COLORS[lang], fontSize: 16, fontWeight: 700 }}>
-                {lang} — {fmt} — {mode === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'}
+                {lang} — {fmt} — {mode === 'withLib' ? 'With library' : 'Without library'}
               </h3>
               {snippet.notes && <p style={{ color: '#64748b', fontSize: 12, marginTop: 6 }}>{snippet.notes}</p>}
             </div>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               {snippet.impractical ? (
                 <div style={{ background: '#7f1d1d', border: '1px solid #dc2626', borderRadius: 8, padding: '6px 12px', fontSize: 11, color: '#fca5a5' }}>
-                  ⚠ 推定 {snippet.estimatedLoc?.toLocaleString()} 行 — 実装非推奨
+                  ⚠ approx. {snippet.estimatedLoc?.toLocaleString()} lines — not recommended to implement
                 </div>
               ) : (
                 <div style={{ background: '#0f172a', borderRadius: 8, padding: '6px 14px', textAlign: 'center' }}>
@@ -302,7 +302,7 @@ function LanguageView() {
                 </div>
               )}
               <div style={{ background: '#0f172a', borderRadius: 8, padding: '6px 14px', textAlign: 'center' }}>
-                <div style={{ fontSize: 10, color: '#64748b' }}>外部パッケージ</div>
+                <div style={{ fontSize: 10, color: '#64748b' }}>External packages</div>
                 <div style={{ fontSize: 22, fontWeight: 700, color: snippet.stdlibOnly ? '#4ade80' : '#f59e0b' }}>{snippet.dependencies.length}</div>
               </div>
             </div>
@@ -315,13 +315,13 @@ function LanguageView() {
           )}
           {snippet.stdlibOnly && (
             <div style={{ marginTop: 10, display: 'inline-block', padding: '3px 10px', background: '#14532d', borderRadius: 6, border: '1px solid #22c55e', fontSize: 11, color: '#86efac' }}>
-              ✓ 標準ライブラリのみ
+              ✓ Standard library only
             </div>
           )}
 
           <div style={{ marginTop: 14 }}>
             <button onClick={() => setShowCode(s => !s)} style={{ ...filterBtn, color: '#60a5fa', borderColor: '#60a5fa50' }}>
-              {showCode ? 'コードを非表示' : 'コードを表示'}
+              {showCode ? 'Hide code' : 'Show code'}
             </button>
           </div>
           {showCode && <pre style={codeStyle}>{snippet.code}</pre>}
@@ -330,12 +330,12 @@ function LanguageView() {
 
       {/* LOC matrix */}
       <div style={panelStyle}>
-        <h3 style={sectionTitle}>LOC 比較マトリクス（ライブラリあり / ライブラリなし）</h3>
+        <h3 style={sectionTitle}>LOC comparison matrix (with library / without library)</h3>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 500 }}>
             <thead>
               <tr>
-                <th style={thStyle}>フォーマット</th>
+                <th style={thStyle}>Format</th>
                 {langs.map(l => (
                   <th key={l} style={{ ...thStyle, color: LANG_COLORS[l] }}>{l}</th>
                 ))}
@@ -350,11 +350,11 @@ function LanguageView() {
                     return (
                       <td key={l} style={tdStyle}>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <span style={{ color: '#4ade80', fontSize: 11 }}>✓ {cell.withLib}行</span>
+                          <span style={{ color: '#4ade80', fontSize: 11 }}>✓ {cell.withLib} lines</span>
                           <span style={{ color: '#475569' }}>|</span>
                           {cell.noLibImpractical
                             ? <span style={{ color: '#f87171', fontSize: 11 }}>✗ ~{cell.estimatedLoc?.toLocaleString()}</span>
-                            : <span style={{ color: '#f472b6', fontSize: 11 }}>⚗ {cell.noLib}行</span>
+                            : <span style={{ color: '#f472b6', fontSize: 11 }}>⚗ {cell.noLib} lines</span>
                           }
                         </div>
                       </td>
@@ -364,13 +364,13 @@ function LanguageView() {
               ))}
             </tbody>
           </table>
-          <p style={{ color: '#475569', fontSize: 11, marginTop: 8 }}>✓ ライブラリあり　⚗ ライブラリなし（実装可能）　✗ ライブラリなし（推定行数・実装非推奨）</p>
+          <p style={{ color: '#475569', fontSize: 11, marginTop: 8 }}>✓ with library　⚗ without library (feasible)　✗ without library (estimated LOC, not recommended)</p>
         </div>
       </div>
 
       {/* All snippets grid */}
       <div style={panelStyle}>
-        <h3 style={sectionTitle}>フォーマット別 外部パッケージ依存数</h3>
+        <h3 style={sectionTitle}>External package dependencies by format</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
           {fmts.map(f => (
             <div key={f} style={{ background: '#0f172a', borderRadius: 10, padding: '14px 16px' }}>
@@ -383,11 +383,11 @@ function LanguageView() {
                     <span style={{ fontSize: 11, color: LANG_COLORS[l] }}>{l}</span>
                     <div style={{ display: 'flex', gap: 12 }}>
                       <span style={{ fontSize: 11, color: '#64748b' }}>
-                        あり: <span style={{ color: '#94a3b8' }}>{wl?.dependencies.join(', ') || 'なし'}</span>
+                        with: <span style={{ color: '#94a3b8' }}>{wl?.dependencies.join(', ') || 'none'}</span>
                       </span>
                       <span style={{ fontSize: 11, color: '#64748b' }}>
-                        なし: <span style={{ color: nl?.stdlibOnly ? '#4ade80' : nl?.impractical ? '#f87171' : '#f472b6' }}>
-                          {nl?.impractical ? '非推奨' : nl?.stdlibOnly ? '標準のみ' : nl?.dependencies.join(', ')}
+                        without: <span style={{ color: nl?.stdlibOnly ? '#4ade80' : nl?.impractical ? '#f87171' : '#f472b6' }}>
+                          {nl?.impractical ? 'not recommended' : nl?.stdlibOnly ? 'stdlib only' : nl?.dependencies.join(', ')}
                         </span>
                       </span>
                     </div>
@@ -612,7 +612,7 @@ function LanguageSpeedView({
   const isJsonLdFmt = fmt === 'JSON-LD VC'
   const effectiveMode = mode
 
-  // ======= フォーマット比較 chart data =======
+  // ======= format comparison chart data =======
   // X: sign/verify, bars: SD-JWT VC / JSON-LD VC / mdoc (for selected language+mode)
   const fmtChartData = ops.map(op => {
     const entry: Record<string, string | number> = { name: op }
@@ -625,7 +625,7 @@ function LanguageSpeedView({
     return entry
   })
 
-  // ======= 言語比較 chart data (existing) =======
+  // ======= language comparison chart data (existing) =======
   // X: sign/verify, bars: TypeScript / Go / Python (for selected format+mode)
   const langChartData = ops.map(op => ({
     name: op,
@@ -654,7 +654,7 @@ function LanguageSpeedView({
         /* Backend mode: show backend runtime info instead of WASM/Pyodide panels */
         <div style={{ ...panelStyle, borderColor: '#ea580c50' }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#fb923c', marginBottom: 8 }}>
-            🖥 バックエンド実測モード — Node.js / Python / Go
+            🖥 Backend measurement mode — Node.js / Python / Go
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
             {([
@@ -668,7 +668,7 @@ function LanguageSpeedView({
                   <div style={{ fontSize: 11, color, fontWeight: 600, marginBottom: 4 }}>{icon} {lang}</div>
                   {res?.runtimeInfo && <div style={{ fontSize: 10, color: '#64748b', marginBottom: 4 }}>{res.runtimeInfo}</div>}
                   <div style={{ fontSize: 10, color: count > 0 ? '#86efac' : '#475569' }}>
-                    {count > 0 ? `✓ ${count} 項目実測済み` : 'データなし（バックエンド計測を実行してください）'}
+                    {count > 0 ? `✓ ${count} measurements` : 'No data (run the backend measurement)'}
                   </div>
                 </div>
               )
@@ -681,22 +681,22 @@ function LanguageSpeedView({
           {/* Go WASM panel */}
           <div style={{ ...panelStyle, borderColor: goResults ? '#34d39950' : '#334155' }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 4 }}>
-              🐹 Go 実測（WebAssembly / ECDSA P-256）
+              🐹 Go measurement (WebAssembly / ECDSA P-256)
             </div>
             <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.5, marginBottom: 8 }}>
               {goResults
-                ? `✓ 実測完了 — ${Object.keys(goResults).length} 項目`
-                : 'go-bench.wasm (4.6 MB) をブラウザ内で実行。標準ライブラリ crypto/ecdsa を計測。'}
+                ? `✓ Measurement complete — ${Object.keys(goResults).length} items`
+                : 'Runs go-bench.wasm (4.6 MB) in the browser and measures the standard library crypto/ecdsa.'}
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               {goProgress && (
-                <span style={{ fontSize: 11, color: goProgress.startsWith('エラー') ? '#f87171' : goRunning ? '#34d399' : '#86efac', flex: 1 }}>
+                <span style={{ fontSize: 11, color: goProgress.startsWith('Error') ? '#f87171' : goRunning ? '#34d399' : '#86efac', flex: 1 }}>
                   {goProgress}
                 </span>
               )}
               <button onClick={onRunGo} disabled={goRunning}
                 style={{ ...btnStyle, fontSize: 11, padding: '6px 14px', background: goRunning ? '#1e293b' : '#14532d', borderColor: goRunning ? '#334155' : '#22c55e', color: goRunning ? '#475569' : '#86efac' }}>
-                {goRunning ? '実行中...' : goResults ? '再実行' : 'Go を実測する'}
+                {goRunning ? 'Running...' : goResults ? 'Run again' : 'Measure Go'}
               </button>
             </div>
             {goResults && (
@@ -713,22 +713,22 @@ function LanguageSpeedView({
           {/* Python Pyodide panel */}
           <div style={{ ...panelStyle, borderColor: pythonResults ? '#f59e0b50' : '#334155' }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 4 }}>
-              🐍 Python 実測（Pyodide / WebAssembly）
+              🐍 Python measurement (Pyodide / WebAssembly)
             </div>
             <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.5, marginBottom: 8 }}>
               {pythonResults
-                ? `✓ 実測完了 — ${Object.keys(pythonResults).length} 項目`
-                : 'Pyodide (~10 MB) でブラウザ内 Python 実行。cryptography / PyJWT / pyld を計測。'}
+                ? `✓ Measurement complete — ${Object.keys(pythonResults).length} items`
+                : 'Runs Python in the browser with Pyodide (~10 MB) and measures cryptography / PyJWT / pyld.'}
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               {pythonProgress && (
-                <span style={{ fontSize: 11, color: pythonProgress.startsWith('エラー') ? '#f87171' : pythonRunning ? '#f59e0b' : '#86efac', flex: 1 }}>
+                <span style={{ fontSize: 11, color: pythonProgress.startsWith('Error') ? '#f87171' : pythonRunning ? '#f59e0b' : '#86efac', flex: 1 }}>
                   {pythonProgress}
                 </span>
               )}
               <button onClick={onRunPython} disabled={pythonRunning}
                 style={{ ...btnStyle, fontSize: 11, padding: '6px 14px', background: pythonRunning ? '#1e293b' : '#78350f', borderColor: pythonRunning ? '#334155' : '#f59e0b', color: pythonRunning ? '#475569' : '#fbbf24' }}>
-                {pythonRunning ? '実行中...' : pythonResults ? '再実行' : 'Python を実測する'}
+                {pythonRunning ? 'Running...' : pythonResults ? 'Run again' : 'Measure Python'}
               </button>
             </div>
             {pythonResults && (
@@ -761,13 +761,13 @@ function LanguageSpeedView({
         ) : (
           <>
             <span style={{ padding: '3px 10px', borderRadius: 6, background: '#34d39920', color: '#34d399', border: '1px solid #34d39940' }}>
-              🐹 Go — {goResults ? '✓ WASM 実測値' : '参考値（上ボタンで実測可）'}
+              🐹 Go — {goResults ? '✓ WASM measurement' : 'reference value (measurable with the button above)'}
             </span>
             <span style={{ padding: '3px 10px', borderRadius: 6, background: '#f59e0b20', color: '#fbbf24', border: '1px solid #f59e0b40' }}>
-              🐍 Python — {pythonResults ? '✓ Pyodide 実測値' : '参考値（上ボタンで実測可）'}
+              🐍 Python — {pythonResults ? '✓ Pyodide measurement' : 'reference value (measurable with the button above)'}
             </span>
             <span style={{ padding: '3px 10px', borderRadius: 6, background: '#60a5fa20', color: '#60a5fa', border: '1px solid #60a5fa40' }}>
-              🔷 TypeScript — ブラウザ実測値
+              🔷 TypeScript — browser measurement
             </span>
           </>
         )}
@@ -776,8 +776,8 @@ function LanguageSpeedView({
       {/* Compare mode toggle */}
       <div style={{ display: 'flex', gap: 0, background: '#0f172a', borderRadius: 10, padding: 4, width: 'fit-content' }}>
         {([
-          { id: 'format'   as CmpMode, label: '📊 フォーマット比較（言語固定）' },
-          { id: 'language' as CmpMode, label: '🌐 言語比較（フォーマット固定）' },
+          { id: 'format'   as CmpMode, label: '📊 By format (fixed language)' },
+          { id: 'language' as CmpMode, label: '🌐 By language (fixed format)' },
         ]).map(({ id, label }) => (
           <button key={id} onClick={() => setCmpMode(id)} style={{
             padding: '6px 14px', borderRadius: 7, border: 'none', cursor: 'pointer',
@@ -789,7 +789,7 @@ function LanguageSpeedView({
         ))}
       </div>
 
-      {/* ====== フォーマット比較 ====== */}
+      {/* ====== format comparison ====== */}
       {cmpMode === 'format' && <>
         {/* Selectors: language + mode */}
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -801,19 +801,19 @@ function LanguageSpeedView({
           {(['withLib', 'noLib'] as const).map(m => (
             <button key={m} onClick={() => setMode(m)}
               style={{ ...filterBtn, borderColor: mode === m ? '#a78bfa' : '#334155', color: mode === m ? '#a78bfa' : '#64748b', background: mode === m ? '#a78bfa15' : '#1e293b' }}>
-              {m === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'}
+              {m === 'withLib' ? 'With library' : 'Without library'}
             </button>
           ))}
         </div>
 
         {!isBackend && mode === 'noLib' && (
           <div style={{ fontSize: 12, color: '#64748b', padding: '6px 12px', background: '#1e293b', borderRadius: 8 }}>
-            ※ JSON-LD VC のライブラリなしは blank node なし向けの簡略 URDNA2015 実装（静的コンテキスト展開 + N-Quads ソート）です。汎用実装（blank node 対応）は ≈ 1200行が必要です。
+            Note: the without-library JSON-LD VC is a simplified URDNA2015 implementation for blank-node-free credentials (static context expansion + N-Quads sorting). A general implementation with blank node support needs roughly 1,200 lines.
           </div>
         )}
         {lang === 'TypeScript' && !hasTs && (
           <div style={{ fontSize: 12, color: '#f59e0b', padding: '8px 12px', background: '#78350f20', borderRadius: 8, border: '1px solid #f59e0b40' }}>
-            ⚠ TypeScript 実測値は「🧪 TS: ライブラリなし vs あり」でベンチマークを実行してください
+            ⚠ For TypeScript measurements, run the benchmark under "🧪 TS: without vs. with library"
           </div>
         )}
 
@@ -821,10 +821,10 @@ function LanguageSpeedView({
         <div style={panelStyle}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
             <h3 style={sectionTitle}>
-              {lang} — {mode === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'} — フォーマット別速度比較（ops/sec）
+              {lang} — {mode === 'withLib' ? 'With library' : 'Without library'} — speed by format (ops/sec)
             </h3>
             {lang !== 'TypeScript' && !isBackend && (
-              <span style={{ fontSize: 10, color: '#475569', padding: '3px 8px', background: '#1e293b', borderRadius: 6, border: '1px solid #334155' }}>参考値（編集可）</span>
+              <span style={{ fontSize: 10, color: '#475569', padding: '3px 8px', background: '#1e293b', borderRadius: 6, border: '1px solid #334155' }}>reference value (editable)</span>
             )}
           </div>
           <ResponsiveContainer width="100%" height={280}>
@@ -845,10 +845,10 @@ function LanguageSpeedView({
 
         {/* Format comparison table */}
         <div style={panelStyle}>
-          <h3 style={sectionTitle}>フォーマット速度比較テーブル</h3>
+          <h3 style={sectionTitle}>Speed comparison table by format</h3>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
-              <tr>{['操作', 'SD-JWT VC', 'JSON-LD VC', 'JSON-LD VC (JCS)', 'mdoc', 'SD-JWT / JSON-LD', 'SD-JWT / JCS', 'SD-JWT / mdoc'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
+              <tr>{['Operation', 'SD-JWT VC', 'JSON-LD VC', 'JSON-LD VC (JCS)', 'mdoc', 'SD-JWT / JSON-LD', 'SD-JWT / JCS', 'SD-JWT / mdoc'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
             </thead>
             <tbody>
               {ops.map(op => {
@@ -870,12 +870,12 @@ function LanguageSpeedView({
                   if (naReason) return (
                     <span title={typeof naReason === 'string' ? naReason : undefined}
                           style={{ color: '#64748b', fontSize: 11, cursor: 'help' }}>
-                      N/A <span style={{ fontSize: 9 }}>（未対応）</span>
+                      N/A <span style={{ fontSize: 9 }}>(unsupported)</span>
                     </span>
                   )
                   return v > 0
-                    ? <span style={{ color: FMT_COLORS_SPD[f] }}>{v.toFixed(0)} ops/sec{(lang !== 'TypeScript' && !isBackend) ? <span style={{ fontSize: 9, color: '#475569' }}> 参考</span> : ''}</span>
-                    : <span style={{ color: '#475569' }}>未計測</span>
+                    ? <span style={{ color: FMT_COLORS_SPD[f] }}>{v.toFixed(0)} ops/sec{(lang !== 'TypeScript' && !isBackend) ? <span style={{ fontSize: 9, color: '#475569' }}> ref</span> : ''}</span>
+                    : <span style={{ color: '#475569' }}>not measured</span>
                 }
                 return (
                   <tr key={op} style={{ borderBottom: '1px solid #1e293b' }}>
@@ -885,7 +885,7 @@ function LanguageSpeedView({
                     <td style={tdStyle}>{fmtCell(jcs, 'JSON-LD VC (JCS)')}</td>
                     <td style={tdStyle}>{fmtCell(md, 'mdoc')}</td>
                     <td style={{ ...tdStyle, fontWeight: 600, color: '#fbbf24' }}>
-                      {jl > 0 && sd > 0 ? `${(sd/jl).toFixed(1)}x 高速` : '—'}
+                      {jl > 0 && sd > 0 ? `${(sd/jl).toFixed(1)}x faster` : '—'}
                     </td>
                     <td style={{ ...tdStyle, fontWeight: 600, color: '#fb923c' }}>
                       {jcs > 0 && sd > 0 ? `${(sd/jcs).toFixed(2)}x` : '—'}
@@ -901,7 +901,7 @@ function LanguageSpeedView({
         </div>
       </>}
 
-      {/* ====== 言語比較 ====== */}
+      {/* ====== language comparison ====== */}
       {cmpMode === 'language' && <>
         {/* Selectors: format + mode */}
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -913,7 +913,7 @@ function LanguageSpeedView({
           {(['withLib', 'noLib'] as const).map(m => (
             <button key={m} onClick={() => setMode(m)}
               style={{ ...filterBtn, borderColor: mode === m ? '#a78bfa' : '#334155', color: mode === m ? '#a78bfa' : '#64748b', background: mode === m ? '#a78bfa15' : '#1e293b' }}>
-              {m === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'}
+              {m === 'withLib' ? 'With library' : 'Without library'}
             </button>
           ))}
         </div>
@@ -922,10 +922,10 @@ function LanguageSpeedView({
         <div style={panelStyle}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
             <h3 style={sectionTitle}>
-              {fmt} — {effectiveMode === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'} — 言語別速度比較（ops/sec）
+              {fmt} — {effectiveMode === 'withLib' ? 'With library' : 'Without library'} — speed by language (ops/sec)
             </h3>
             {!isBackend && (
-              <span style={{ fontSize: 10, color: '#475569', padding: '3px 8px', background: '#1e293b', borderRadius: 6, border: '1px solid #334155' }}>Go/Python は参考値（編集可）</span>
+              <span style={{ fontSize: 10, color: '#475569', padding: '3px 8px', background: '#1e293b', borderRadius: 6, border: '1px solid #334155' }}>Go/Python are reference values (editable)</span>
             )}
           </div>
           <ResponsiveContainer width="100%" height={280}>
@@ -945,10 +945,10 @@ function LanguageSpeedView({
 
         {/* Ratio table */}
         <div style={panelStyle}>
-          <h3 style={sectionTitle}>TypeScript 実測値を基準とした相対速度</h3>
+          <h3 style={sectionTitle}>Relative speed against the TypeScript measurement</h3>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
-              <tr>{['操作', 'TypeScript', 'Go', '比率 (Go/TS)', 'Python', '比率 (Py/TS)'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
+              <tr>{['Operation', 'TypeScript', 'Go', 'Ratio (Go/TS)', 'Python', 'Ratio (Py/TS)'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
             </thead>
             <tbody>
               {ops.map(op => {
@@ -960,20 +960,20 @@ function LanguageSpeedView({
                 const pyNA = isBackend && fmt === 'JSON-LD VC' && effectiveMode === 'withLib' && backendResult?.pythonResult?.errors?.['pyld']
                 const pyCbNA = isBackend && fmt === 'mdoc' && effectiveMode === 'withLib' && backendResult?.pythonResult?.errors?.['cbor2']
                 const goDisplay = goNA
-                  ? <span title={typeof goNA === 'string' ? goNA : undefined} style={{ color: '#64748b', fontSize: 11, cursor: 'help' }}>N/A（stdlib非対応）</span>
-                  : go > 0 ? `${go.toLocaleString()} ops/sec` : <span style={{ color: '#475569' }}>未計測</span>
+                  ? <span title={typeof goNA === 'string' ? goNA : undefined} style={{ color: '#64748b', fontSize: 11, cursor: 'help' }}>N/A (not in stdlib)</span>
+                  : go > 0 ? `${go.toLocaleString()} ops/sec` : <span style={{ color: '#475569' }}>not measured</span>
                 const pyDisplay = (pyNA || pyCbNA)
-                  ? <span title={typeof (pyNA || pyCbNA) === 'string' ? String(pyNA || pyCbNA) : undefined} style={{ color: '#64748b', fontSize: 11, cursor: 'help' }}>N/A（未インストール）</span>
-                  : py > 0 ? `${py.toLocaleString()} ops/sec` : <span style={{ color: '#475569' }}>未計測</span>
+                  ? <span title={typeof (pyNA || pyCbNA) === 'string' ? String(pyNA || pyCbNA) : undefined} style={{ color: '#64748b', fontSize: 11, cursor: 'help' }}>N/A (not installed)</span>
+                  : py > 0 ? `${py.toLocaleString()} ops/sec` : <span style={{ color: '#475569' }}>not measured</span>
                 const goR = (goNA || go === 0) ? '—' : ts > 0 ? `${(go/ts).toFixed(2)}x` : '—'
                 const pyR = (pyNA || pyCbNA || py === 0) ? '—' : ts > 0 ? `${(py/ts).toFixed(2)}x` : '—'
                 return (
                   <tr key={op} style={{ borderBottom: '1px solid #1e293b' }}>
                     <td style={tdStyle}>{op}</td>
-                    <td style={{ ...tdStyle, color: LANG_COLORS_SPD.TypeScript }}>{ts > 0 ? `${ts.toFixed(0)} ops/sec` : <span style={{ color: '#475569' }}>未計測</span>}</td>
-                    <td style={{ ...tdStyle, color: goNA ? '#64748b' : LANG_COLORS_SPD.Go }}>{goDisplay}{go > 0 && !isBackend ? <span style={{ fontSize: 9, color: '#475569' }}> 参考</span> : ''}</td>
+                    <td style={{ ...tdStyle, color: LANG_COLORS_SPD.TypeScript }}>{ts > 0 ? `${ts.toFixed(0)} ops/sec` : <span style={{ color: '#475569' }}>not measured</span>}</td>
+                    <td style={{ ...tdStyle, color: goNA ? '#64748b' : LANG_COLORS_SPD.Go }}>{goDisplay}{go > 0 && !isBackend ? <span style={{ fontSize: 9, color: '#475569' }}> ref</span> : ''}</td>
                     <td style={{ ...tdStyle, fontWeight: 600, color: goR === '—' ? '#475569' : ts > 0 && go >= ts ? '#4ade80' : '#f87171' }}>{goR}</td>
-                    <td style={{ ...tdStyle, color: (pyNA || pyCbNA) ? '#64748b' : LANG_COLORS_SPD.Python }}>{pyDisplay}{py > 0 && !isBackend ? <span style={{ fontSize: 9, color: '#475569' }}> 参考</span> : ''}</td>
+                    <td style={{ ...tdStyle, color: (pyNA || pyCbNA) ? '#64748b' : LANG_COLORS_SPD.Python }}>{pyDisplay}{py > 0 && !isBackend ? <span style={{ fontSize: 9, color: '#475569' }}> ref</span> : ''}</td>
                     <td style={{ ...tdStyle, fontWeight: 600, color: pyR === '—' ? '#475569' : ts > 0 && py >= ts ? '#4ade80' : '#f87171' }}>{pyR}</td>
                   </tr>
                 )
@@ -985,7 +985,7 @@ function LanguageSpeedView({
 
       {/* ====== Shared: Editable reference inputs (frontend only) ====== */}
       {!isBackend && <div style={panelStyle}>
-        <h3 style={sectionTitle}>参考値を編集（{mode === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'}）</h3>
+        <h3 style={sectionTitle}>Edit reference values ({mode === 'withLib' ? 'with library' : 'without library'})</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
           {allRefKeys.map(({ key, label, fmt: f }) => {
             const ref = refs[key] ?? { Go: 0, Python: 0 }
@@ -1012,18 +1012,18 @@ function LanguageSpeedView({
 
       {/* Benchmark scripts (frontend only) */}
       {!isBackend && <div style={panelStyle}>
-        <h3 style={sectionTitle}>ローカル実行用ベンチマークスクリプト</h3>
+        <h3 style={sectionTitle}>Benchmark scripts for local execution</h3>
         <p style={{ fontSize: 12, color: '#64748b', marginBottom: 14, lineHeight: 1.6 }}>
-          以下のスクリプトをローカル環境で実行し、計測結果を上の入力欄に貼り付けてください。
+          Run the scripts below in your local environment and paste the results into the input fields above.
         </p>
         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
           <button onClick={() => setShowScript(s => s === 'go' ? 'none' : 'go')}
             style={{ ...filterBtn, color: showScript === 'go' ? LANG_COLORS_SPD.Go : '#64748b', borderColor: showScript === 'go' ? LANG_COLORS_SPD.Go : '#334155', background: showScript === 'go' ? LANG_COLORS_SPD.Go + '15' : '#1e293b' }}>
-            Go スクリプト
+            Go script
           </button>
           <button onClick={() => setShowScript(s => s === 'python' ? 'none' : 'python')}
             style={{ ...filterBtn, color: showScript === 'python' ? LANG_COLORS_SPD.Python : '#64748b', borderColor: showScript === 'python' ? LANG_COLORS_SPD.Python : '#334155', background: showScript === 'python' ? LANG_COLORS_SPD.Python + '15' : '#1e293b' }}>
-            Python スクリプト
+            Python script
           </button>
         </div>
         {showScript === 'go'     && <pre style={codeStyle}>{GO_SCRIPT}</pre>}
@@ -1064,9 +1064,9 @@ export function ImplComparison({ benchmarkResults, serialResults, benchmarkRunni
       {/* Sub-view toggle */}
       <div style={{ display: 'flex', gap: 0, background: '#0f172a', borderRadius: 10, padding: 4, width: 'fit-content', flexWrap: 'wrap' }}>
         {([
-          { id: 'language'  as SubView, label: '🌐 言語別コード比較' },
-          { id: 'benchmark' as SubView, label: '🧪 TS: ライブラリなし vs あり' },
-          { id: 'langspeed' as SubView, label: '⚡ 言語別速度比較' },
+          { id: 'language'  as SubView, label: '🌐 Code comparison by language' },
+          { id: 'benchmark' as SubView, label: '🧪 TS: without vs. with library' },
+          { id: 'langspeed' as SubView, label: '⚡ Speed comparison by language' },
         ]).map(({ id, label }) => (
           <button key={id} onClick={() => setView(id)} style={{
             padding: '7px 16px', borderRadius: 7, border: 'none', cursor: 'pointer',

@@ -25,8 +25,8 @@ export interface Snippet {
 const SD_JWT_TS_NOLIB: Snippet = {
   language: 'TypeScript', format: 'SD-JWT VC', mode: 'noLib',
   loc: 28, dependencies: [], stdlibOnly: true,
-  notes: 'Web Crypto API (ECDSA P-256) + btoa/atob。外部パッケージ不要。',
-  code: `// SD-JWT VC 署名 — ライブラリなし（Web Crypto API のみ）
+  notes: 'Web Crypto API (ECDSA P-256) + btoa/atob. No external packages required.',
+  code: `// SD-JWT VC signing — without library (Web Crypto API only)
 function b64url(bytes: Uint8Array): string {
   return btoa(String.fromCharCode(...bytes))
     .replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=/g, '')
@@ -57,25 +57,25 @@ async function verify(token: string, key: CryptoKey): Promise<object> {
 const SD_JWT_TS_WITHLIB: Snippet = {
   language: 'TypeScript', format: 'SD-JWT VC', mode: 'withLib',
   loc: 8, dependencies: ['jose@6.x'],  stdlibOnly: false,
-  notes: 'jose が JWS の全処理を抽象化。鍵生成から署名まで統一API。',
+  notes: 'jose abstracts the whole JWS pipeline: one API from key generation to signing.',
   code: `import { SignJWT, jwtVerify, generateKeyPair } from 'jose'
 
 const { privateKey, publicKey } = await generateKeyPair('EdDSA', { crv: 'Ed25519' })
 
-// 署名
+// Sign
 const token = await new SignJWT(payload)
   .setProtectedHeader({ alg: 'EdDSA' })
   .sign(privateKey)
 
-// 検証
+// Verify
 const { payload: claims } = await jwtVerify(token, publicKey)`,
 }
 
 const SD_JWT_GO_NOLIB: Snippet = {
   language: 'Go', format: 'SD-JWT VC', mode: 'noLib',
   loc: 45, dependencies: [], stdlibOnly: true,
-  notes: 'crypto/ecdsa, encoding/base64, encoding/json, crypto/elliptic のみ使用。',
-  code: `// SD-JWT VC 署名 — 標準ライブラリのみ
+  notes: 'Uses only crypto/ecdsa, encoding/base64, encoding/json and crypto/elliptic.',
+  code: `// SD-JWT VC signing — standard library only
 import (
   "crypto/ecdsa"
   "crypto/rand"
@@ -119,18 +119,18 @@ func Verify(token string, pub *ecdsa.PublicKey) (map[string]any, error) {
 const SD_JWT_GO_WITHLIB: Snippet = {
   language: 'Go', format: 'SD-JWT VC', mode: 'withLib',
   loc: 10, dependencies: ['github.com/golang-jwt/jwt/v5'],  stdlibOnly: false,
-  notes: 'golang-jwt/jwt が RS256/ES256/EdDSA を統一インターフェースで提供。',
+  notes: 'golang-jwt/jwt exposes RS256/ES256/EdDSA through a single interface.',
   code: `import (
   "github.com/golang-jwt/jwt/v5"
   "crypto/ecdsa"
 )
 
-// 署名
+// Sign
 claims := jwt.MapClaims{"iss": "https://issuer.example.com", "vct": "identity"}
 tok := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
 signed, err := tok.SignedString(privateKey)
 
-// 検証
+// Verify
 parsed, err := jwt.Parse(signed, func(t *jwt.Token) (any, error) {
   return publicKey.(*ecdsa.PublicKey), nil
 })`,
@@ -139,7 +139,7 @@ parsed, err := jwt.Parse(signed, func(t *jwt.Token) (any, error) {
 const SD_JWT_PY_NOLIB: Snippet = {
   language: 'Python', format: 'SD-JWT VC', mode: 'noLib',
   loc: 38, dependencies: ['cryptography'],  stdlibOnly: false,
-  notes: 'cryptography は署名のみ。base64/json は stdlib。DER→IEEE P1363 変換が必要。',
+  notes: 'cryptography only signs; base64/json come from the stdlib. A DER -> IEEE P1363 conversion is required.',
   code: `import base64, json, struct
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -174,18 +174,18 @@ def verify(token: str, pub: ec.EllipticCurvePublicKey) -> dict:
 const SD_JWT_PY_WITHLIB: Snippet = {
   language: 'Python', format: 'SD-JWT VC', mode: 'withLib',
   loc: 7, dependencies: ['PyJWT>=2.8'],  stdlibOnly: false,
-  notes: 'PyJWT が DER/P1363 変換・検証を自動処理。',
+  notes: 'PyJWT handles the DER/P1363 conversion and verification automatically.',
   code: `import jwt
 from cryptography.hazmat.primitives.asymmetric import ec
 
-# 鍵生成
+# Key generation
 private_key = ec.generate_private_key(ec.SECP256R1())
 public_key  = private_key.public_key()
 
-# 署名
+# Sign
 token = jwt.encode({"iss": "https://issuer.example.com", "vct": "identity"},
                    private_key, algorithm='ES256')
-# 検証
+# Verify
 claims = jwt.decode(token, public_key, algorithms=['ES256'])`,
 }
 
@@ -196,16 +196,16 @@ claims = jwt.decode(token, public_key, algorithms=['ES256'])`,
 const JSONLD_TS_NOLIB: Snippet = {
   language: 'TypeScript', format: 'JSON-LD VC', mode: 'noLib',
   loc: 62, dependencies: [], stdlibOnly: true,
-  notes: 'blank node がない資格情報では URDNA2015 は「静的コンテキスト展開 → N-Quads → ソート」に簡略化できる。blank node を含む汎用実装は別途 ~1200行が必要。',
-  code: `// URDNA2015 (blank-node-free 向け簡略実装)
-// ブランクノードがない場合: 展開 → N-Quads → ソート のみ
+  notes: 'For credentials without blank nodes, URDNA2015 reduces to "static context expansion -> N-Quads -> sort". A general implementation that handles blank nodes needs roughly 1,200 additional lines.',
+  code: `// URDNA2015 (simplified implementation for blank-node-free documents)
+// Without blank nodes: expand -> N-Quads -> sort only
 
 const CRED  = 'https://www.w3.org/2018/credentials#'
 const SCH   = 'http://schema.org/'
 const XSD   = 'http://www.w3.org/2001/XMLSchema#'
 const RDF_T = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type'
 
-// 静的コンテキストマッピング（VC_CONTEXT から抽出）
+// static context mapping (extracted from VC_CONTEXT)
 const TERMS: Record<string, { iri: string; vt?: string }> = {
   VerifiableCredential: { iri: CRED + 'VerifiableCredential' },
   credentialSubject:    { iri: CRED + 'credentialSubject', vt: '@id' },
@@ -214,7 +214,7 @@ const TERMS: Record<string, { iri: string; vt?: string }> = {
   given_name:           { iri: SCH + 'givenName' },
   family_name:          { iri: SCH + 'familyName' },
   birthdate:            { iri: SCH + 'birthDate' },
-  // ... 他の用語
+  // ... other terms
 }
 
 function ntLit(v: string, type?: string): string {
@@ -263,20 +263,20 @@ async function sign(doc: object, privateKey: CryptoKey): Promise<ArrayBuffer> {
 const JSONLD_TS_WITHLIB: Snippet = {
   language: 'TypeScript', format: 'JSON-LD VC', mode: 'withLib',
   loc: 18, dependencies: ['jsonld@8.x', '@noble/ed25519@2.x'],  stdlibOnly: false,
-  notes: 'URDNA2015正規化はjsonldライブラリに委任。署名自体はEd25519で軽量。',
+  notes: 'URDNA2015 canonicalization is delegated to the jsonld library; the signature itself is lightweight Ed25519.',
   code: `import jsonld from 'jsonld'
 import * as ed from '@noble/ed25519'
 
 async function sign(doc: object, privateKey: Uint8Array): Promise<string> {
-  // 1. URDNA2015 正規化（ライブラリなしでは ~1200行）
+  // 1. URDNA2015 canonicalization (~1,200 lines without a library)
   const normalized = await jsonld.normalize(doc, {
     algorithm: 'URDNA2015',
     format: 'application/n-quads',
-    documentLoader: myLoader,  // コンテキスト取得（SSRF注意）
+    documentLoader: myLoader,  // context retrieval (mind SSRF)
     safe: false,
   }) as string
 
-  // 2. SHA-256 → Ed25519 署名
+  // 2. SHA-256 -> Ed25519 signature
   const hash = new Uint8Array(await crypto.subtle.digest(
     'SHA-256', new TextEncoder().encode(normalized)))
   return Buffer.from(await ed.signAsync(hash, privateKey)).toString('hex')
@@ -286,7 +286,7 @@ async function sign(doc: object, privateKey: Uint8Array): Promise<string> {
 const JSONLD_GO_NOLIB: Snippet = {
   language: 'Go', format: 'JSON-LD VC', mode: 'noLib',
   loc: 65, dependencies: [], stdlibOnly: true,
-  notes: 'blank node なし資格情報向けの静的コンテキスト展開 + N-Quads ソート実装。汎用 URDNA2015 は ~1500行。',
+  notes: 'Static context expansion + N-Quads sorting for blank-node-free credentials. A general URDNA2015 implementation is ~1,500 lines.',
   code: `package main
 
 import (
@@ -360,7 +360,7 @@ func sign(doc map[string]any, priv ed25519.PrivateKey) []byte {
 const JSONLD_GO_WITHLIB: Snippet = {
   language: 'Go', format: 'JSON-LD VC', mode: 'withLib',
   loc: 20, dependencies: ['github.com/piprate/json-gold'],  stdlibOnly: false,
-  notes: 'json-gold が URDNA2015を提供。署名は crypto/ed25519 (stdlib)。',
+  notes: 'json-gold provides URDNA2015; signing uses crypto/ed25519 (stdlib).',
   code: `import (
   "github.com/piprate/json-gold/ld"
   "crypto/ed25519"
@@ -384,7 +384,7 @@ func Sign(doc map[string]any, privKey ed25519.PrivateKey) ([]byte, error) {
 const JSONLD_PY_NOLIB: Snippet = {
   language: 'Python', format: 'JSON-LD VC', mode: 'noLib',
   loc: 55, dependencies: [], stdlibOnly: true,
-  notes: 'blank node なし資格情報向けの静的コンテキスト展開 + N-Quads ソート実装。汎用 URDNA2015 は ~1300行。',
+  notes: 'Static context expansion + N-Quads sorting for blank-node-free credentials. A general URDNA2015 implementation is ~1,300 lines.',
   code: `import hashlib, json
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -441,13 +441,13 @@ def sign(doc: dict, private_key: Ed25519PrivateKey) -> bytes:
 const JSONLD_PY_WITHLIB: Snippet = {
   language: 'Python', format: 'JSON-LD VC', mode: 'withLib',
   loc: 15, dependencies: ['pyld>=2.0', 'cryptography'],  stdlibOnly: false,
-  notes: 'pyld が URDNA2015 を提供。Ed25519は cryptography.io ライブラリ。',
+  notes: 'pyld provides URDNA2015; Ed25519 comes from the cryptography.io library.',
   code: `from pyld import jsonld
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 import hashlib
 
 def sign(doc: dict, private_key: Ed25519PrivateKey) -> bytes:
-    # URDNA2015 正規化
+    # URDNA2015 canonicalization
     normalized = jsonld.normalize(doc, {
         'algorithm': 'URDNA2015',
         'format': 'application/n-quads',
@@ -469,8 +469,8 @@ def verify(doc: dict, signature: bytes, public_key) -> bool:
 const MDOC_TS_NOLIB: Snippet = {
   language: 'TypeScript', format: 'mdoc', mode: 'noLib',
   loc: 130, dependencies: [], stdlibOnly: true,
-  notes: 'CBOR エンコーダ/デコーダ (~80行) + COSE_Sign1 + ダイジェスト検証を手実装。Web Crypto API のみ。',
-  code: `// CBOR encode（抜粋 ~80行）
+  notes: 'Hand-written CBOR encoder/decoder (~80 lines) + COSE_Sign1 + digest verification. Web Crypto API only.',
+  code: `// CBOR encode (excerpt, ~80 lines)
 function cborHead(major: number, n: number): Uint8Array { /* ... */ }
 export function cborEncode(v: unknown): Uint8Array {
   if (v instanceof Map) { /* map encoding */ }
@@ -486,9 +486,9 @@ export function cborDecode(b: Uint8Array): CborVal { /* ... */ }
 // COSE_Sign1 (RFC 9052)
 const ALG_ES256 = -7
 async function mdocSign(fields: Record<string,unknown>, key: CryptoKey) {
-  // 各要素を CBOR エンコードして SHA-256
+  // CBOR-encode each element and hash it with SHA-256
   const digests = await buildDigests(fields)
-  // MSO (Mobile Security Object) を構築
+  // build the MSO (Mobile Security Object)
   const mso = { version:'1.0', digestAlgorithm:'SHA-256', valueDigests: digests, ... }
   // Sig_Structure = ["Signature1", protected_header, empty, payload]
   const protHdr = cborEncode(new Map([[1, ALG_ES256]]))
@@ -502,13 +502,13 @@ async function mdocSign(fields: Record<string,unknown>, key: CryptoKey) {
 const MDOC_TS_WITHLIB: Snippet = {
   language: 'TypeScript', format: 'mdoc', mode: 'withLib',
   loc: 45, dependencies: ['cbor-x@1.x'],  stdlibOnly: false,
-  notes: 'cbor-x が CBOR の煩雑なバイト操作を隠蔽。COSE は手実装（cbor-x で Sig_Structure を構築）。',
+  notes: 'cbor-x hides the fiddly CBOR byte handling; COSE is hand-written (Sig_Structure built with cbor-x).',
   code: `import { encode, decode } from 'cbor-x'
 
 const ALG_ES256 = -7
 
 async function mdocSign(fields: Record<string,unknown>, key: CryptoKey) {
-  // 要素ごとの SHA-256 ダイジェスト
+  // per-element SHA-256 digest
   const items = []; const digests: Record<number, Uint8Array> = {}
   for (const [i, [k, v]] of Object.entries(fields).entries()) {
     const b = encode({ digestID: i, random: crypto.getRandomValues(new Uint8Array(16)),
@@ -529,8 +529,8 @@ async function mdocSign(fields: Record<string,unknown>, key: CryptoKey) {
 const MDOC_GO_NOLIB: Snippet = {
   language: 'Go', format: 'mdoc', mode: 'noLib',
   loc: 160, dependencies: [], stdlibOnly: true,
-  notes: 'encoding/binary で CBOR バイト列を手組み。crypto/ecdsa で COSE_Sign1。',
-  code: `// CBOR encoding (抜粋)
+  notes: 'CBOR byte strings assembled by hand with encoding/binary; COSE_Sign1 via crypto/ecdsa.',
+  code: `// CBOR encoding (excerpt)
 func cborHead(major, n int) []byte {
     b := byte(major << 5)
     switch {
@@ -560,7 +560,7 @@ func MdocSign(fields map[string]any, key *ecdsa.PrivateKey) ([]byte, error) {
 const MDOC_GO_WITHLIB: Snippet = {
   language: 'Go', format: 'mdoc', mode: 'withLib',
   loc: 50, dependencies: ['github.com/fxamacker/cbor/v2'],  stdlibOnly: false,
-  notes: 'fxamacker/cbor が CBOR を担当。COSE_Sign1 の Sig_Structure は cbor.Marshal で構築。',
+  notes: 'fxamacker/cbor handles CBOR; the COSE_Sign1 Sig_Structure is built with cbor.Marshal.',
   code: `import (
   "github.com/fxamacker/cbor/v2"
   "crypto/ecdsa"
@@ -568,7 +568,7 @@ const MDOC_GO_WITHLIB: Snippet = {
 )
 
 func MdocSign(fields map[string]any, key *ecdsa.PrivateKey) ([]byte, error) {
-  // 各要素のダイジェスト
+  // digest of each element
   digests := map[int][]byte{}
   for i, item := range buildItems(fields) {
     b, _ := cbor.Marshal(item)
@@ -591,7 +591,7 @@ func MdocSign(fields map[string]any, key *ecdsa.PrivateKey) ([]byte, error) {
 const MDOC_PY_NOLIB: Snippet = {
   language: 'Python', format: 'mdoc', mode: 'noLib',
   loc: 145, dependencies: ['cryptography'],  stdlibOnly: false,
-  notes: 'struct モジュールで CBOR バイト組み立て。cryptography で ECDSA P-256。',
+  notes: 'CBOR bytes assembled with the struct module; ECDSA P-256 from cryptography.',
   code: `import struct, hashlib
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import hashes
@@ -629,7 +629,7 @@ def mdoc_sign(fields: dict, key: ec.EllipticCurvePrivateKey) -> bytes:
 const MDOC_PY_WITHLIB: Snippet = {
   language: 'Python', format: 'mdoc', mode: 'withLib',
   loc: 35, dependencies: ['cbor2>=5.4', 'cryptography'],  stdlibOnly: false,
-  notes: 'cbor2 がエンコード/デコードを担当。COSE_Sign1 は手実装（cbor2 で Sig_Structure を構築）。',
+  notes: 'cbor2 handles encoding/decoding; COSE_Sign1 is hand-written (Sig_Structure built with cbor2).',
   code: `import cbor2, hashlib
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import hashes

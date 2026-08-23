@@ -286,18 +286,18 @@ export async function runSpeedBenchmarks(
   iterations: number,
   onProgress: (msg: string) => void,
 ): Promise<SpeedResult[]> {
-  onProgress('SD-JWT VC ベンチマーク実行中...')
+  onProgress('Running the SD-JWT VC benchmark...')
   const sdJwtResults = await benchmarkSdJwt(iterations)
 
-  onProgress('JSON-LD VC ベンチマーク実行中（URDNA2015 正規化を含む）...')
+  onProgress('Running the JSON-LD VC benchmark (including URDNA2015 canonicalization)...')
   const jsonLdResults = await benchmarkJsonLdVc(iterations)
 
-  onProgress('JSON-LD VC (JCS) ベンチマーク実行中（JCS 正規化）...')
+  onProgress('Running the JSON-LD VC (JCS) benchmark (JCS canonicalization)...')
   const jsonLdJcsResults = await benchmarkJsonLdJcsVc(iterations)
 
-  onProgress('mdoc (ISO 18013-5) ベンチマーク実行中...')
+  onProgress('Running the mdoc (ISO 18013-5) benchmark...')
   const mdocResults = await benchmarkMdoc(iterations)
 
-  onProgress('完了')
+  onProgress('Done')
   return [...sdJwtResults, ...jsonLdResults, ...jsonLdJcsResults, ...mdocResults]
 }

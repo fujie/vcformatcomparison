@@ -177,7 +177,7 @@ async function verifyMdocEd25519(mdocBytes: Uint8Array, publicKey: Uint8Array): 
 }
 
 // ============================================================
-// 1. 属性数スケーリング
+// 1. Attribute-count scaling
 // ============================================================
 
 export async function runAttrScalingBenchmark(
@@ -191,7 +191,7 @@ export async function runAttrScalingBenchmark(
   const SUBJ_ID = 'did:example:subject:001'
 
   for (const n of attrCounts) {
-    onProgress?.(`属性数スケーリング: ${n}属性...`)
+    onProgress?.(`Attribute-count scaling: ${n} attributes...`)
     const attrs = makeAttrs(n)
 
     // SD-JWT VC: JSON.stringify
@@ -205,7 +205,7 @@ export async function runAttrScalingBenchmark(
     }
     results.push({
       benchmark: 'attrScaling', format: 'SD-JWT VC',
-      label: `${n}属性`, attrCount: n, iterations,
+      label: `${n} attributes`, attrCount: n, iterations,
       payloadSizeBytes: new TextEncoder().encode(sdJson).length,
       ...msStats(sdTimings),
     })
@@ -220,7 +220,7 @@ export async function runAttrScalingBenchmark(
     }
     results.push({
       benchmark: 'attrScaling', format: 'JSON-LD VC',
-      label: `${n}属性`, attrCount: n, iterations,
+      label: `${n} attributes`, attrCount: n, iterations,
       payloadSizeBytes: new TextEncoder().encode(jldNorm).length,
       ...msStats(jldTimings),
     })
@@ -241,7 +241,7 @@ export async function runAttrScalingBenchmark(
     }
     results.push({
       benchmark: 'attrScaling', format: 'JSON-LD VC (JCS)',
-      label: `${n}属性`, attrCount: n, iterations,
+      label: `${n} attributes`, attrCount: n, iterations,
       payloadSizeBytes: new TextEncoder().encode(jcsResult).length,
       ...msStats(jcsTimings),
     })
@@ -269,7 +269,7 @@ export async function runAttrScalingBenchmark(
     }
     results.push({
       benchmark: 'attrScaling', format: 'mdoc',
-      label: `${n}属性`, attrCount: n, iterations,
+      label: `${n} attributes`, attrCount: n, iterations,
       payloadSizeBytes: mdocBytes.length,
       ...msStats(mdocTimings),
     })
@@ -281,7 +281,7 @@ export async function runAttrScalingBenchmark(
 }
 
 // ============================================================
-// 2. JSON-LD context loader比較
+// 2. JSON-LD context loader comparison
 // ============================================================
 
 export async function runContextLoaderBenchmark(
@@ -299,7 +299,7 @@ export async function runContextLoaderBenchmark(
   }
 
   // 1. Static loader: pre-loaded context, no network
-  onProgress?.('コンテキストローダー: 静的ローダー計測中...')
+  onProgress?.('Context loader: measuring the static loader...')
   const staticLoader = makeStaticContextLoader()
   const staticTimings: number[] = []
   for (let i = 0; i < iterations; i++) {
@@ -312,14 +312,14 @@ export async function runContextLoaderBenchmark(
   }
   results.push({
     benchmark: 'contextLoader', format: 'JSON-LD VC',
-    label: '静的ローダー (制限あり・SSRF安全)', condition: 'static',
+    label: 'Static loader (restricted, SSRF-safe)', condition: 'static',
     iterations, ...msStats(staticTimings),
   })
 
   // 2. Permissive loader: simulates 50ms network latency per normalize call
   //    Each iteration explicitly waits for the "network round-trip" before normalizing.
   //    This demonstrates the performance cost AND SSRF attack surface of permissive loaders.
-  onProgress?.('コンテキストローダー: リモートローダー (ネットワーク遅延シミュレーション) 計測中...')
+  onProgress?.('Context loader: measuring the remote loader (simulated network delay)...')
   const NETWORK_DELAY_MS = 50
   const permissiveTimings: number[] = []
   for (let i = 0; i < iterations; i++) {
@@ -335,7 +335,7 @@ export async function runContextLoaderBenchmark(
   }
   results.push({
     benchmark: 'contextLoader', format: 'JSON-LD VC',
-    label: `リモートローダー (${NETWORK_DELAY_MS}ms遅延・SSRF危険)`, condition: 'permissive',
+    label: `Remote loader (${NETWORK_DELAY_MS}ms delay, SSRF-risky)`, condition: 'permissive',
     iterations, ...msStats(permissiveTimings),
   })
 
@@ -378,10 +378,10 @@ export async function runCallLimitBenchmark(
 
   for (const nodeCount of [2, 4, 6, 8]) {
     const doc = makeBlankNodeGraph(nodeCount)
-    const label = `${nodeCount}ノード 循環グラフ`
+    const label = `${nodeCount}-node cyclic graph`
 
     // Without timeout
-    onProgress?.(`URDNA2015: ${label} (タイムアウトなし)...`)
+    onProgress?.(`URDNA2015: ${label} (no timeout)...`)
     try {
       const t0 = performance.now()
       await normalizeDoc(doc)
@@ -400,7 +400,7 @@ export async function runCallLimitBenchmark(
     }
 
     // With timeout
-    onProgress?.(`URDNA2015: ${label} (タイムアウト ${timeoutMs}ms)...`)
+    onProgress?.(`URDNA2015: ${label} (timeout ${timeoutMs}ms)...`)
     let timedOut = false
     const t0 = performance.now()
     try {
@@ -422,7 +422,7 @@ export async function runCallLimitBenchmark(
 }
 
 // ============================================================
-// 4. 選択的開示性能比較
+// 4. Selective disclosure performance comparison
 // ============================================================
 
 async function makeDisclosure(key: string, value: string): Promise<{ hash: string; disclosure: string; key: string }> {
@@ -445,7 +445,7 @@ export async function runSelectiveDiscBenchmark(
   const ISSUER_ID = 'did:example:issuer'
   const SUBJ_ID = 'did:example:subject:001'
 
-  onProgress?.('選択的開示: SHA-256 ハッシュ事前計算中...')
+  onProgress?.('Selective disclosure: precomputing SHA-256 hashes...')
   const allDisclosures = await Promise.all(
     attrEntries.map(([k, v]) => makeDisclosure(k, v))
   )
@@ -460,7 +460,7 @@ export async function runSelectiveDiscBenchmark(
 
   for (const n of disclosedCounts) {
     // SD-JWT selective disclosure presentation
-    onProgress?.(`選択的開示: SD-JWT ${n}/${totalAttrs}属性...`)
+    onProgress?.(`Selective disclosure: SD-JWT ${n}/${totalAttrs} attributes...`)
     const hiddenDisclosures = allDisclosures.slice(n)
     const revealedDisclosures = allDisclosures.slice(0, n)
     const sdTimings: number[] = []
@@ -480,12 +480,12 @@ export async function runSelectiveDiscBenchmark(
     }
     results.push({
       benchmark: 'selectiveDisc', format: 'SD-JWT VC',
-      label: `SD-JWT ${n}/${totalAttrs}属性開示`, disclosedCount: n,
+      label: `SD-JWT ${n}/${totalAttrs} disclosed`, disclosedCount: n,
       iterations, ...msStats(sdTimings),
     })
 
     // mdoc selective disclosure presentation
-    onProgress?.(`選択的開示: mdoc ${n}/${totalAttrs}属性...`)
+    onProgress?.(`Selective disclosure: mdoc ${n}/${totalAttrs} attributes...`)
     const selectedItems = allMdocItems.slice(0, n)
     const mdocTimings: number[] = []
     for (let i = 0; i < iterations; i++) {
@@ -501,12 +501,12 @@ export async function runSelectiveDiscBenchmark(
     }
     results.push({
       benchmark: 'selectiveDisc', format: 'mdoc',
-      label: `mdoc ${n}/${totalAttrs}属性開示`, disclosedCount: n,
+      label: `mdoc ${n}/${totalAttrs} disclosed`, disclosedCount: n,
       iterations, ...msStats(mdocTimings),
     })
 
     // JSON-LD VC selective disclosure: re-normalize derived credential (URDNA2015)
-    onProgress?.(`選択的開示: JSON-LD VC ${n}/${totalAttrs}属性...`)
+    onProgress?.(`Selective disclosure: JSON-LD VC ${n}/${totalAttrs} attributes...`)
     const revealedAttrs = Object.fromEntries(attrEntries.slice(0, n))
     const jldTimings: number[] = []
     for (let i = 0; i < iterations; i++) {
@@ -516,14 +516,14 @@ export async function runSelectiveDiscBenchmark(
     }
     results.push({
       benchmark: 'selectiveDisc', format: 'JSON-LD VC',
-      label: `JSON-LD VC ${n}/${totalAttrs}属性開示`, disclosedCount: n,
+      label: `JSON-LD VC ${n}/${totalAttrs} disclosed`, disclosedCount: n,
       iterations, ...msStats(jldTimings),
     })
 
     // JSON-LD VC (JCS) selective disclosure: re-canonicalize disclosed subset
     // Batch timing: single performance.now() call measures BATCH iterations to avoid
     // 0.1ms timer quantization noise (Spectre mitigation) dominating sub-ms operations.
-    onProgress?.(`選択的開示: JSON-LD VC (JCS) ${n}/${totalAttrs}属性...`)
+    onProgress?.(`Selective disclosure: JSON-LD VC (JCS) ${n}/${totalAttrs} attributes...`)
     const jcsDoc = {
       '@context': [VC_CONTEXT_URL, { '@vocab': VOCAB }],
       id: CRED_ID, type: ['VerifiableCredential'],
@@ -541,7 +541,7 @@ export async function runSelectiveDiscBenchmark(
     }
     results.push({
       benchmark: 'selectiveDisc', format: 'JSON-LD VC (JCS)',
-      label: `JSON-LD VC (JCS) ${n}/${totalAttrs}属性開示`, disclosedCount: n,
+      label: `JSON-LD VC (JCS) ${n}/${totalAttrs} disclosed`, disclosedCount: n,
       iterations, ...msStats(jcsTimings),
     })
   }
@@ -550,7 +550,7 @@ export async function runSelectiveDiscBenchmark(
 }
 
 // ============================================================
-// 5. Ed25519統一ベンチマーク
+// 5. Ed25519-unified benchmark
 // ============================================================
 
 export async function runUnifiedEd25519Benchmark(
@@ -565,7 +565,7 @@ export async function runUnifiedEd25519Benchmark(
   const NOW = Math.floor(Date.now() / 1000)
 
   // ── SD-JWT VC with Ed25519 (jose EdDSA) ─────────────────────
-  onProgress?.('Ed25519統一: SD-JWT VC (EdDSA)...')
+  onProgress?.('Ed25519-unified: SD-JWT VC (EdDSA)...')
   const { privateKey: sdPriv, publicKey: sdPub } = await generateKeyPair('EdDSA', { crv: 'Ed25519' })
   const sdPayload = { iss: ISSUER_ID, iat: NOW, exp: NOW + 3600, sub: SUBJ_ID, ...FIELDS }
   const warmSd = await new SignJWT(sdPayload).setProtectedHeader({ alg: 'EdDSA' }).sign(sdPriv)
@@ -597,7 +597,7 @@ export async function runUnifiedEd25519Benchmark(
   })
 
   // ── JSON-LD VC with Ed25519 (URDNA2015 inline + sha256) ─────
-  onProgress?.('Ed25519統一: JSON-LD VC (Ed25519+URDNA2015)...')
+  onProgress?.('Ed25519-unified: JSON-LD VC (Ed25519+URDNA2015)...')
   const { privateKey: jldPriv, publicKey: jldPub } = await generateEd25519KeyPair()
   const enc = new TextEncoder()
 
@@ -636,7 +636,7 @@ export async function runUnifiedEd25519Benchmark(
   })
 
   // ── mdoc with Ed25519 (EdDSA COSE_Sign1, alg=-8) ────────────
-  onProgress?.('Ed25519統一: mdoc (Ed25519 COSE_Sign1)...')
+  onProgress?.('Ed25519-unified: mdoc (Ed25519 COSE_Sign1)...')
   const { privateKey: mdocPriv, publicKey: mdocPub } = await generateEd25519KeyPair()
   const warmMdoc = await issueMdocEd25519(FIELDS, mdocPriv)
   await verifyMdocEd25519(warmMdoc, mdocPub)
@@ -677,19 +677,19 @@ export async function runScalingBenchmarks(
   iterations = 50,
   onProgress?: (msg: string) => void,
 ): Promise<ScalingBenchResults> {
-  onProgress?.('[1/5] 属性数スケーリング...')
+  onProgress?.('[1/5] Attribute-count scaling...')
   const attrScaling = await runAttrScalingBenchmark([5, 20, 100, 500], Math.max(iterations, 100), onProgress)
 
-  onProgress?.('[2/5] JSON-LD コンテキストローダー比較...')
+  onProgress?.('[2/5] JSON-LD context loader comparison...')
   const contextLoader = await runContextLoaderBenchmark(Math.min(iterations, 5), onProgress)
 
-  onProgress?.('[3/5] URDNA2015 call limit 比較...')
+  onProgress?.('[3/5] URDNA2015 call limit comparison...')
   const callLimit = await runCallLimitBenchmark(2000, onProgress)
 
-  onProgress?.('[4/5] 選択的開示性能比較...')
+  onProgress?.('[4/5] Selective disclosure performance comparison...')
   const selectiveDisc = await runSelectiveDiscBenchmark(20, [1, 3, 5, 10, 20], Math.max(iterations, 50), onProgress)
 
-  onProgress?.('[5/5] Ed25519 統一ベンチマーク...')
+  onProgress?.('[5/5] Ed25519-unified benchmark...')
   const unifiedEd25519 = await runUnifiedEd25519Benchmark(iterations, onProgress)
 
   return { attrScaling, contextLoader, callLimit, selectiveDisc, unifiedEd25519 }

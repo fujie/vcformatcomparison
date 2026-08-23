@@ -18,9 +18,9 @@ const SEVERITY_CONFIG: Record<Severity, { label: string; color: string; bg: stri
 }
 
 const RESULT_CONFIG = {
-  vulnerable:       { label: '脆弱',    icon: '✗', color: '#f87171' },
-  mitigated:        { label: '緩和済み', icon: '✓', color: '#4ade80' },
-  partial:          { label: '部分的',  icon: '△', color: '#fbbf24' },
+  vulnerable:       { label: 'Vulnerable', icon: '✗', color: '#f87171' },
+  mitigated:        { label: 'Mitigated',  icon: '✓', color: '#4ade80' },
+  partial:          { label: 'Partial',    icon: '△', color: '#fbbf24' },
   'not-applicable': { label: 'N/A',     icon: '—', color: '#64748b' },
 }
 
@@ -33,11 +33,11 @@ const FORMAT_COLORS: Record<string, string> = {
 
 const CATEGORY_LABELS: Record<string, string> = {
   DoS: 'DoS',
-  Injection: 'インジェクション',
+  Injection: 'Injection',
   SSRF: 'SSRF',
-  AlgorithmConfusion: 'アルゴリズム混同',
-  ContextHijack: 'コンテキストハイジャック',
-  CborMalleability: 'CBORマリアビリティ',
+  AlgorithmConfusion: 'Algorithm Confusion',
+  ContextHijack: 'Context Hijack',
+  CborMalleability: 'CBOR Malleability',
 }
 
 export function SecurityResults({ results, benchMode = 'frontend', backendResult }: Props) {
@@ -52,8 +52,8 @@ export function SecurityResults({ results, benchMode = 'frontend', backendResult
     return (
       <div style={{ color: '#94a3b8', padding: 32 }}>
         {benchMode === 'backend'
-          ? 'バックエンドセキュリティテストデータなし — バックエンド計測を実行してください'
-          : 'セキュリティテスト結果なし'}
+          ? 'No backend security test data - run the backend measurement first'
+          : 'No security test results'}
       </div>
     )
   }
@@ -76,25 +76,25 @@ export function SecurityResults({ results, benchMode = 'frontend', backendResult
       {/* Summary counters */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
         <div style={{ ...cardStyle, borderColor: '#dc2626' }}>
-          <div style={{ fontSize: 11, color: '#94a3b8' }}>脆弱</div>
+          <div style={{ fontSize: 11, color: '#94a3b8' }}>Vulnerable</div>
           <div style={{ fontSize: 36, fontWeight: 800, color: '#f87171' }}>{vulnerableCount}</div>
-          <div style={{ fontSize: 11, color: '#64748b' }}>テスト項目</div>
+          <div style={{ fontSize: 11, color: '#64748b' }}>tests</div>
         </div>
         <div style={{ ...cardStyle, borderColor: '#f59e0b' }}>
-          <div style={{ fontSize: 11, color: '#94a3b8' }}>部分的リスク</div>
+          <div style={{ fontSize: 11, color: '#94a3b8' }}>Partial risk</div>
           <div style={{ fontSize: 36, fontWeight: 800, color: '#fbbf24' }}>{partialCount}</div>
-          <div style={{ fontSize: 11, color: '#64748b' }}>テスト項目</div>
+          <div style={{ fontSize: 11, color: '#64748b' }}>tests</div>
         </div>
         <div style={{ ...cardStyle, borderColor: '#22c55e' }}>
-          <div style={{ fontSize: 11, color: '#94a3b8' }}>緩和済み</div>
+          <div style={{ fontSize: 11, color: '#94a3b8' }}>Mitigated</div>
           <div style={{ fontSize: 36, fontWeight: 800, color: '#4ade80' }}>{mitigatedCount}</div>
-          <div style={{ fontSize: 11, color: '#64748b' }}>テスト項目</div>
+          <div style={{ fontSize: 11, color: '#64748b' }}>tests</div>
         </div>
       </div>
 
       {/* Risk score per format */}
       <div style={panelStyle}>
-        <h3 style={sectionTitle}>リスクスコア（低いほど安全）</h3>
+        <h3 style={sectionTitle}>Risk score (lower is safer)</h3>
         <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
           {formats.map((f) => {
             const { risky, total } = riskByFormat[f] as { risky: number; total: number }
@@ -108,7 +108,7 @@ export function SecurityResults({ results, benchMode = 'frontend', backendResult
                 <div style={{ height: 10, background: '#0f172a', borderRadius: 5, overflow: 'hidden' }}>
                   <div style={{ height: '100%', width: `${pct}%`, background: FORMAT_COLORS[f], borderRadius: 5, transition: 'width 0.5s' }} />
                 </div>
-                <div style={{ fontSize: 10, color: '#64748b', marginTop: 3 }}>リスクあり / テスト合計</div>
+                <div style={{ fontSize: 10, color: '#64748b', marginTop: 3 }}>at risk / total tests</div>
               </div>
             )
           })}
@@ -141,18 +141,18 @@ export function SecurityResults({ results, benchMode = 'frontend', backendResult
               {test.timeMs !== undefined && test.normalTimeMs !== undefined && (
                 <div style={{ display: 'flex', gap: 12, marginTop: 10 }}>
                   <div style={{ background: '#0f172a', borderRadius: 8, padding: '7px 12px', flex: 1 }}>
-                    <div style={{ fontSize: 9, color: '#64748b' }}>正常グラフ</div>
+                    <div style={{ fontSize: 9, color: '#64748b' }}>Normal graph</div>
                     <div style={{ fontSize: 16, fontWeight: 700, color: '#4ade80' }}>{test.normalTimeMs.toFixed(1)} ms</div>
                   </div>
                   <div style={{ background: '#0f172a', borderRadius: 8, padding: '7px 12px', flex: 1 }}>
-                    <div style={{ fontSize: 9, color: '#64748b' }}>ポイズングラフ</div>
+                    <div style={{ fontSize: 9, color: '#64748b' }}>Poison graph</div>
                     <div style={{ fontSize: 16, fontWeight: 700, color: '#f87171' }}>{test.timeMs.toFixed(1)} ms</div>
                   </div>
                 </div>
               )}
 
               <div style={{ marginTop: 8, padding: '7px 10px', background: '#0f172a', borderRadius: 8, fontSize: 11, color: '#94a3b8', lineHeight: 1.55 }}>
-                <span style={{ color: '#64748b' }}>実測結果: </span>{test.details}
+                <span style={{ color: '#64748b' }}>Measured: </span>{test.details}
               </div>
 
               {test.cveReferences && test.cveReferences.length > 0 && (
@@ -167,11 +167,11 @@ export function SecurityResults({ results, benchMode = 'frontend', backendResult
 
       {/* Summary matrix */}
       <div style={panelStyle}>
-        <h3 style={sectionTitle}>セキュリティ比較マトリクス</h3>
+        <h3 style={sectionTitle}>Security comparison matrix</h3>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
             <tr>
-              {['攻撃カテゴリ', 'SD-JWT VC', 'JSON-LD VC', 'mdoc'].map((h) => (
+              {['Attack category', 'SD-JWT VC', 'JSON-LD VC', 'mdoc'].map((h) => (
                 <th key={h} style={{ textAlign: 'left', padding: '8px 10px', color: '#64748b', fontWeight: 600, borderBottom: '1px solid #334155' }}>{h}</th>
               ))}
             </tr>

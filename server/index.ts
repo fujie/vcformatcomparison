@@ -163,70 +163,70 @@ async function runBenchmark(
 
   try {
     if (doNode) {
-      progress('━━ Node.js ベンチマーク開始 ━━')
+      progress('━━ Node.js benchmark started ━━')
       const nr = await runNodeBenchmarks(iterations, progress)
       job.nodeResult = nr
       emitSSE(job.id, 'node_done', nr)
     }
 
     if (doPython) {
-      progress('━━ Python ベンチマーク開始 ━━')
+      progress('━━ Python benchmark started ━━')
       try {
         const pr = await runPythonBenchmark(iterations, progress)
         job.pythonResult = pr
         emitSSE(job.id, 'python_done', pr)
       } catch (e) {
-        progress(`Python エラー: ${e}`)
+        progress(`Python error: ${e}`)
         job.pythonResult = { error: String(e) }
       }
     }
 
     if (doGo) {
-      progress('━━ Go ベンチマーク開始 ━━')
+      progress('━━ Go benchmark started ━━')
       try {
         const gr = await runGoBenchmark(iterations, progress)
         job.goResult = gr
         emitSSE(job.id, 'go_done', gr)
       } catch (e) {
-        progress(`Go エラー: ${e}`)
+        progress(`Go error: ${e}`)
         job.goResult = { error: String(e) }
       }
     }
 
     if (doComplexity) {
-      progress('━━ 複雑性分析開始 ━━')
+      progress('━━ Complexity analysis started ━━')
       try {
         const cr = await runNodeComplexity(Math.min(iterations, 50), progress)
         job.complexityResult = cr
         emitSSE(job.id, 'complexity_done', cr)
       } catch (e) {
-        progress(`複雑性分析エラー: ${e}`)
+        progress(`Complexity analysis error: ${e}`)
         job.complexityResult = { error: String(e) }
       }
     }
 
     if (doSecurity) {
-      progress('━━ セキュリティテスト開始 ━━')
+      progress('━━ Security tests started ━━')
       try {
         const sr = await runNodeSecurity(progress)
         job.securityResult = sr
         emitSSE(job.id, 'security_done', sr)
       } catch (e) {
-        progress(`セキュリティテストエラー: ${e}`)
+        progress(`Security test error: ${e}`)
         job.securityResult = { error: String(e) }
       }
     }
 
     job.status = 'done'
     job.finishedAt = Date.now()
-    progress(`✅ 全計測完了 (${((job.finishedAt - job.startedAt) / 1000).toFixed(1)}s)`)
+    progress(`✅ All measurements completed (${((job.finishedAt - job.startedAt) / 1000).toFixed(1)}s)`)
     emitSSE(job.id, 'done', buildResult(job))
 
   } catch (e) {
     job.status = 'error'
     job.error = String(e)
     job.finishedAt = Date.now()
-    progress(`❌ エラー: ${e}`)
+    progress(`❌ Error: ${e}`)
     emitSSE(job.id, 'done', buildResult(job))
   }
 

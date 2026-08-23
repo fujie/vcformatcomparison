@@ -15,7 +15,7 @@ async function getPyodide() {
         const s = document.createElement('script')
         s.src = PYODIDE_CDN + 'pyodide.js'
         s.onload = () => resolve()
-        s.onerror = () => reject(new Error('Pyodide CDN の読み込みに失敗しました'))
+        s.onerror = () => reject(new Error('Failed to load Pyodide from the CDN'))
         document.head.appendChild(s)
       })
     }
@@ -315,17 +315,17 @@ json.dumps({"results": results, "errors": errors})
 export async function runPythonBenchmark(
   onProgress: (msg: string) => void,
 ): Promise<PyBenchResults> {
-  onProgress('Pyodide をロード中（初回のみ約10 MB）...')
+  onProgress('Loading Pyodide (about 10 MB, first time only)...')
   const py = await getPyodide()
 
   // Load bundled packages first (reliable, offline)
-  onProgress('cryptography をロード中...')
+  onProgress('Loading cryptography...')
   await py.loadPackage(['cryptography', 'micropip'])
 
   // Install optional pure-Python packages individually so one failure doesn't block others
   const optionalPkgs = ['PyJWT', 'pyld', 'cbor2']
   for (const pkg of optionalPkgs) {
-    onProgress(`${pkg} をインストール中...`)
+    onProgress(`Installing ${pkg}...`)
     try {
       // micropip.install is directly awaitable via runPythonAsync
       await py.runPythonAsync(`
@@ -340,7 +340,7 @@ except Exception as e:
     }
   }
 
-  onProgress('Python ベンチマーク実行中...')
+  onProgress('Running the Python benchmark...')
   const raw = await py.runPythonAsync(PY_BENCH_CODE)
   const parsed = JSON.parse(raw as string) as {
     results: Record<string, PyBenchEntry>
@@ -351,6 +351,6 @@ except Exception as e:
     console.warn('[Python benchmark] partial errors:', parsed.errors)
   }
 
-  onProgress(`完了 — ${Object.keys(parsed.results).length} 項目計測`)
+  onProgress(`Done — ${Object.keys(parsed.results).length} measurements`)
   return parsed.results
 }

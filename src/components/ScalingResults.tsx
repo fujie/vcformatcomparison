@@ -43,7 +43,7 @@ function AttrScalingSection({ data }: { data: ScalingResult[] }) {
   const attrCounts = [...new Set(data.map(r => r.attrCount!))].sort((a, b) => a - b)
 
   const chartData = attrCounts.map(n => {
-    const row: Record<string, number | string> = { attrs: `${n}属性` }
+    const row: Record<string, number | string> = { attrs: `${n} attrs` }
     for (const fmt of formats) {
       const r = data.find(d => d.attrCount === n && d.format === fmt)
       if (r) row[fmt] = r.avgMs
@@ -53,8 +53,8 @@ function AttrScalingSection({ data }: { data: ScalingResult[] }) {
 
   return (
     <div style={s.card}>
-      <div style={s.title}>1. 属性数スケーリング</div>
-      <div style={s.sub}>5 / 20 / 100 / 500 属性でのシリアライズ速度 — フォーマット間の実用上の差はここに現れる</div>
+      <div style={s.title}>1. Attribute-count scaling</div>
+      <div style={s.sub}>Serialization speed at 5 / 20 / 100 / 500 attributes — this is where the practical differences between formats show up</div>
 
       <ResponsiveContainer width="100%" height={300}>
         <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
@@ -77,12 +77,12 @@ function AttrScalingSection({ data }: { data: ScalingResult[] }) {
       <table style={{ ...s.table, marginTop: 20 }}>
         <thead>
           <tr>
-            <th style={s.th}>フォーマット</th>
+            <th style={s.th}>Format</th>
             {attrCounts.map(n => (
-              <th key={n} style={{ ...s.th, textAlign: 'right' }}>{n}属性 avg(ms)</th>
+              <th key={n} style={{ ...s.th, textAlign: 'right' }}>{n} attrs avg(ms)</th>
             ))}
             {attrCounts.map(n => (
-              <th key={`sz-${n}`} style={{ ...s.th, textAlign: 'right' }}>{n}属性 size(B)</th>
+              <th key={`sz-${n}`} style={{ ...s.th, textAlign: 'right' }}>{n} attrs size(B)</th>
             ))}
           </tr>
         </thead>
@@ -112,20 +112,20 @@ function ContextLoaderSection({ data }: { data: ScalingResult[] }) {
   const permissR = data.find(r => r.condition === 'permissive')
 
   const chartData = [
-    { name: '静的ローダー', avgMs: staticR?.avgMs ?? 0, p95: staticR?.p95Ms ?? 0 },
-    { name: 'リモートローダー', avgMs: permissR?.avgMs ?? 0, p95: permissR?.p95Ms ?? 0 },
+    { name: 'Static loader', avgMs: staticR?.avgMs ?? 0, p95: staticR?.p95Ms ?? 0 },
+    { name: 'Remote loader', avgMs: permissR?.avgMs ?? 0, p95: permissR?.p95Ms ?? 0 },
   ]
 
   const overhead = staticR && permissR ? permissR.avgMs - staticR.avgMs : null
 
   return (
     <div style={s.card}>
-      <div style={s.title}>2. JSON-LD remote context 有無の比較</div>
+      <div style={s.title}>2. JSON-LD remote context: with vs. without</div>
       <div style={s.sub}>
-        静的ローダー（SSRF安全・高速）vs リモートローダー（ネットワーク遅延 +SSRF攻撃面）
+        Static loader (SSRF-safe, fast) vs. remote loader (network latency + SSRF attack surface)
         {overhead !== null && (
           <span style={{ marginLeft: 12, color: '#f59e0b' }}>
-            オーバーヘッド: +{fmt(overhead, 1)} ms/call
+            Overhead: +{fmt(overhead, 1)} ms/call
           </span>
         )}
       </div>
@@ -141,7 +141,7 @@ function ContextLoaderSection({ data }: { data: ScalingResult[] }) {
                 contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8 }}
                 formatter={(v: number) => [`${v.toFixed(2)} ms`, '']}
               />
-              <Bar dataKey="avgMs" name="平均(ms)" radius={[4, 4, 0, 0]}>
+              <Bar dataKey="avgMs" name="mean(ms)" radius={[4, 4, 0, 0]}>
                 <Cell fill="#60a5fa" />
                 <Cell fill="#ef4444" />
               </Bar>
@@ -152,7 +152,7 @@ function ContextLoaderSection({ data }: { data: ScalingResult[] }) {
         <table style={{ ...s.table, flex: '1 1 280px', alignSelf: 'flex-start' }}>
           <thead>
             <tr>
-              <th style={s.th}>ローダー</th>
+              <th style={s.th}>Loader</th>
               <th style={{ ...s.th, textAlign: 'right' }}>avg(ms)</th>
               <th style={{ ...s.th, textAlign: 'right' }}>p95(ms)</th>
               <th style={{ ...s.th, textAlign: 'right' }}>σ(ms)</th>
@@ -160,8 +160,8 @@ function ContextLoaderSection({ data }: { data: ScalingResult[] }) {
           </thead>
           <tbody>
             {[
-              { label: '静的ローダー', r: staticR, color: '#60a5fa' },
-              { label: 'リモートローダー', r: permissR, color: '#ef4444' },
+              { label: 'Static loader', r: staticR, color: '#60a5fa' },
+              { label: 'Remote loader', r: permissR, color: '#ef4444' },
             ].map(({ label, r, color }) => (
               <tr key={label}>
                 <td style={{ ...s.td, color }}>{label}</td>
@@ -175,8 +175,8 @@ function ContextLoaderSection({ data }: { data: ScalingResult[] }) {
       </div>
 
       <div style={{ marginTop: 16, padding: '10px 14px', background: '#0f172a', borderRadius: 8, border: '1px solid #ef444440', fontSize: 12, color: '#fca5a5' }}>
-        ⚠ リモートローダー使用時: 攻撃者が制御するURLをクレデンシャルに埋め込むことで内部ネットワーク探索（SSRF）が可能になる。
-        静的ローダーは不明なURLを即座にブロックし、このリスクを排除する。
+        ⚠ With the remote loader an attacker can embed a URL under their control in a credential and probe the internal network (SSRF).
+        The static loader blocks unknown URLs immediately and removes this risk.
       </div>
     </div>
   )
@@ -191,8 +191,8 @@ function CallLimitSection({ data }: { data: ScalingResult[] }) {
     const with_   = data.find(r => r.label === label && r.condition === 'with')
     return {
       label,
-      'タイムアウトなし': without?.avgMs ?? 0,
-      'タイムアウトあり': with_?.avgMs ?? 0,
+      'No timeout': without?.avgMs ?? 0,
+      'With timeout': with_?.avgMs ?? 0,
       withoutTimedOut: without?.timedOut,
       withTimedOut:    with_?.timedOut,
     }
@@ -200,8 +200,8 @@ function CallLimitSection({ data }: { data: ScalingResult[] }) {
 
   return (
     <div style={s.card}>
-      <div style={s.title}>3. URDNA2015 call limit 有無の比較</div>
-      <div style={s.sub}>ブランクノード循環グラフでの DoS 緩和効果 — ノード数増加で指数的に悪化する正規化をタイムアウトで保護</div>
+      <div style={s.title}>3. URDNA2015 call limit: with vs. without</div>
+      <div style={s.sub}>DoS mitigation on cyclic blank node graphs — canonicalization degrades exponentially with node count and a timeout protects against it</div>
 
       <ResponsiveContainer width="100%" height={260}>
         <BarChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
@@ -213,19 +213,19 @@ function CallLimitSection({ data }: { data: ScalingResult[] }) {
             formatter={(v: number) => [`${v.toFixed(1)} ms`, '']}
           />
           <Legend wrapperStyle={{ fontSize: 12, color: '#94a3b8' }} />
-          <Bar dataKey="タイムアウトなし" fill="#ef4444" radius={[3, 3, 0, 0]} />
-          <Bar dataKey="タイムアウトあり" fill="#34d399" radius={[3, 3, 0, 0]} />
+          <Bar dataKey="No timeout" fill="#ef4444" radius={[3, 3, 0, 0]} />
+          <Bar dataKey="With timeout" fill="#34d399" radius={[3, 3, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
 
       <table style={{ ...s.table, marginTop: 20 }}>
         <thead>
           <tr>
-            <th style={s.th}>グラフ</th>
-            <th style={{ ...s.th, textAlign: 'right' }}>タイムアウトなし (ms)</th>
-            <th style={{ ...s.th, textAlign: 'center' }}>状態</th>
-            <th style={{ ...s.th, textAlign: 'right' }}>タイムアウトあり (ms)</th>
-            <th style={{ ...s.th, textAlign: 'center' }}>状態</th>
+            <th style={s.th}>Graph</th>
+            <th style={{ ...s.th, textAlign: 'right' }}>No timeout (ms)</th>
+            <th style={{ ...s.th, textAlign: 'center' }}>Status</th>
+            <th style={{ ...s.th, textAlign: 'right' }}>With timeout (ms)</th>
+            <th style={{ ...s.th, textAlign: 'center' }}>Status</th>
           </tr>
         </thead>
         <tbody>
@@ -238,14 +238,14 @@ function CallLimitSection({ data }: { data: ScalingResult[] }) {
                 <td style={s.numTd}>{without ? fmt(without.avgMs, 1) : '—'}</td>
                 <td style={{ ...s.td, textAlign: 'center' }}>
                   {without?.timedOut
-                    ? <span style={{ ...s.badge, background: '#7f1d1d', color: '#fca5a5' }}>タイムアウト</span>
-                    : <span style={{ ...s.badge, background: '#14532d', color: '#86efac' }}>完了</span>}
+                    ? <span style={{ ...s.badge, background: '#7f1d1d', color: '#fca5a5' }}>Timed out</span>
+                    : <span style={{ ...s.badge, background: '#14532d', color: '#86efac' }}>Completed</span>}
                 </td>
                 <td style={s.numTd}>{with_ ? fmt(with_.avgMs, 1) : '—'}</td>
                 <td style={{ ...s.td, textAlign: 'center' }}>
                   {with_?.timedOut
-                    ? <span style={{ ...s.badge, background: '#78350f', color: '#fde68a' }}>保護動作</span>
-                    : <span style={{ ...s.badge, background: '#14532d', color: '#86efac' }}>完了</span>}
+                    ? <span style={{ ...s.badge, background: '#78350f', color: '#fde68a' }}>Protected</span>
+                    : <span style={{ ...s.badge, background: '#14532d', color: '#86efac' }}>Completed</span>}
                 </td>
               </tr>
             )
@@ -261,7 +261,7 @@ function SelectiveDiscSection({ data }: { data: ScalingResult[] }) {
   const counts = [...new Set(data.map(r => r.disclosedCount!))].sort((a, b) => a - b)
   const fmts = ['SD-JWT VC', 'JSON-LD VC', 'JSON-LD VC (JCS)', 'mdoc'] as const
   const chartData = counts.map(n => {
-    const row: Record<string, number | string> = { n: `${n}属性` }
+    const row: Record<string, number | string> = { n: `${n} attrs` }
     for (const f of fmts) {
       const r = data.find(r => r.format === f && r.disclosedCount === n)
       if (r) row[f] = r.avgMs
@@ -271,8 +271,8 @@ function SelectiveDiscSection({ data }: { data: ScalingResult[] }) {
 
   return (
     <div style={s.card}>
-      <div style={s.title}>4. 選択的開示性能比較</div>
-      <div style={s.sub}>開示属性数別のプレゼンテーション生成レイテンシ（20属性中 N 属性を開示）</div>
+      <div style={s.title}>4. Selective disclosure performance</div>
+      <div style={s.sub}>Presentation generation latency by number of disclosed attributes (N of 20 attributes disclosed)</div>
 
       <div style={s.row}>
         <div style={{ flex: '1 1 320px' }}>
@@ -296,7 +296,7 @@ function SelectiveDiscSection({ data }: { data: ScalingResult[] }) {
         <table style={{ ...s.table, flex: '1 1 320px', alignSelf: 'flex-start' }}>
           <thead>
             <tr>
-              <th style={s.th}>開示数</th>
+              <th style={s.th}>Disclosed</th>
               {fmts.map(f => (
                 <th key={f} style={{ ...s.th, textAlign: 'right', color: FORMAT_COLORS[f] }}>
                   {f === 'JSON-LD VC (JCS)' ? 'JCS (ms)' : f === 'JSON-LD VC' ? 'JSON-LD (ms)' : `${f.split(' ')[0]} (ms)`}
@@ -307,7 +307,7 @@ function SelectiveDiscSection({ data }: { data: ScalingResult[] }) {
           <tbody>
             {counts.map(n => (
               <tr key={n}>
-                <td style={s.td}>{n}属性</td>
+                <td style={s.td}>{n} attrs</td>
                 {fmts.map(f => {
                   const r = data.find(r => r.format === f && r.disclosedCount === n)
                   return <td key={f} style={{ ...s.numTd, color: FORMAT_COLORS[f] }}>{r ? fmt(r.avgMs, 4) : '—'}</td>
@@ -335,8 +335,8 @@ function UnifiedEd25519Section({ data }: { data: ScalingResult[] }) {
 
   return (
     <div style={s.card}>
-      <div style={s.title}>5. Ed25519 統一ベンチマーク</div>
-      <div style={s.sub}>全フォーマットをEd25519で統一計測 — 純粋なシリアライゼーション差を分離（mdocは通常ECDSA P-256使用）</div>
+      <div style={s.title}>5. Ed25519-unified benchmark</div>
+      <div style={s.sub}>All formats measured with Ed25519 — isolates the pure serialization difference (mdoc normally uses ECDSA P-256)</div>
 
       <div style={s.row}>
         <div style={{ flex: '1 1 360px' }}>
@@ -360,7 +360,7 @@ function UnifiedEd25519Section({ data }: { data: ScalingResult[] }) {
         <table style={{ ...s.table, flex: '1 1 260px', alignSelf: 'flex-start' }}>
           <thead>
             <tr>
-              <th style={s.th}>フォーマット</th>
+              <th style={s.th}>Format</th>
               <th style={{ ...s.th, textAlign: 'right' }}>sign avg(ms)</th>
               <th style={{ ...s.th, textAlign: 'right' }}>verify avg(ms)</th>
               <th style={{ ...s.th, textAlign: 'right' }}>sign p95(ms)</th>
@@ -384,8 +384,8 @@ function UnifiedEd25519Section({ data }: { data: ScalingResult[] }) {
       </div>
 
       <div style={{ marginTop: 16, padding: '10px 14px', background: '#0f172a', borderRadius: 8, border: '1px solid #60a5fa40', fontSize: 12, color: '#93c5fd' }}>
-        JSON-LD VC は normalize (URDNA2015) + SHA-256 ハッシュのオーバーヘッドを含む。
-        それを除くと mdoc のシリアライゼーション差 (CBOR vs JWT) が純粋に比較できる。
+        JSON-LD VC includes the overhead of normalize (URDNA2015) + SHA-256 hashing.
+        Excluding it, the serialization difference of mdoc (CBOR vs. JWT) can be compared directly.
       </div>
     </div>
   )
@@ -397,9 +397,9 @@ export function ScalingResults({ results, running, progress, onRun }: Props) {
     <div style={s.wrap}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: '#e2e8f0' }}>詳細分析ベンチマーク</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: '#e2e8f0' }}>Detailed analysis benchmarks</div>
           <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
-            属性数スケーリング / コンテキストローダー / DoS緩和 / 選択的開示 / Ed25519統一
+            Attribute scaling / context loader / DoS mitigation / selective disclosure / Ed25519-unified
           </div>
         </div>
         <button
@@ -407,22 +407,22 @@ export function ScalingResults({ results, running, progress, onRun }: Props) {
           disabled={running}
           style={{ ...s.runBtn, ...(running ? { background: '#1e293b', color: '#475569', cursor: 'not-allowed' } : {}) }}
         >
-          {running ? `⏳ 計測中... ${progress}` : results ? '再実行' : '詳細分析ベンチマーク実行'}
+          {running ? `⏳ Measuring... ${progress}` : results ? 'Run again' : 'Run detailed analysis'}
         </button>
       </div>
 
       {running && (
         <div style={{ padding: '14px 18px', background: '#1e293b', borderRadius: 10, border: '1px solid #334155', fontSize: 13, color: '#60a5fa' }}>
-          ⏳ {progress || '準備中...'}
+          ⏳ {progress || 'Preparing...'}
         </div>
       )}
 
       {!results && !running && (
         <div style={s.empty}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>🔬</div>
-          <div>「詳細分析ベンチマーク実行」ボタンを押して5つの詳細分析を開始してください</div>
+          <div>Press the "Run detailed analysis" button to start the five analyses</div>
           <div style={{ marginTop: 8, fontSize: 12, color: '#334155' }}>
-            所要時間: 約 30〜60 秒（属性数スケーリング 100反復 + URDNA2015 計測を含む）
+            Estimated time: about 30-60 s (includes 100 iterations of attribute scaling and the URDNA2015 measurements)
           </div>
         </div>
       )}

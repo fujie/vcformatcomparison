@@ -61,12 +61,12 @@ async function testPoisonGraph(): Promise<BackendSecurityTest> {
 
   const ratio = poisonMs / Math.max(normalMs, 0.1)
   return {
-    id: 'jsonld-dos', name: 'ポイズングラフ DoS (URDNA2015)',
+    id: 'jsonld-dos', name: 'Poison Graph DoS (URDNA2015)',
     format: 'JSON-LD VC', category: 'DoS',
     severity: 'high',
-    description: '循環ブランクノード(n=16)を含むグラフで URDNA2015 正規化を実行し、指数的時間増大を確認。',
+    description: 'Runs URDNA2015 canonicalization on a graph containing cyclic blank nodes (n=16) and confirms the exponential growth of processing time.',
     result: ratio > 5 ? 'vulnerable' : 'partial',
-    details: `正常グラフ: ${normalMs.toFixed(1)} ms / ポイズングラフ: ${poisonMs.toFixed(1)} ms / 比率: ×${ratio.toFixed(1)}`,
+    details: `Normal graph: ${normalMs.toFixed(1)} ms / poison graph: ${poisonMs.toFixed(1)} ms / ratio: x${ratio.toFixed(1)}`,
     timeMs: poisonMs, normalTimeMs: normalMs,
     cveReferences: ['CVE-2022-21680 (marked)', 'GHSA-3xqr-m5hm-m3q4'],
   }
@@ -95,17 +95,17 @@ async function testContextInjection(): Promise<BackendSecurityTest> {
     const hasLegit = norm.includes('legitimate-issuer.example.com')
     const hasMalicious = norm.includes('attacker.example.com')
     caught = !hasMalicious
-    detail = `正規化結果に正当なissuerが${hasLegit ? '含まれる' : '含まれない'}、攻撃者URLが${hasMalicious ? '含まれる(⚠危険)' : '含まれない(安全)'}`
+    detail = `The canonicalized output ${hasLegit ? 'contains' : 'does not contain'} the legitimate issuer and ${hasMalicious ? 'contains the attacker URL (dangerous)' : 'does not contain the attacker URL (safe)'}`
   } catch (e) {
     caught = true
-    detail = `jsonld が例外をスロー: ${(e as Error).message.slice(0, 80)}`
+    detail = `jsonld threw an exception: ${(e as Error).message.slice(0, 80)}`
   }
 
   return {
-    id: 'jsonld-context-injection', name: 'コンテキストインジェクション',
+    id: 'jsonld-context-injection', name: 'Context Injection',
     format: 'JSON-LD VC', category: 'ContextHijack',
     severity: 'high',
-    description: '悪意ある @context で issuer URI を上書きしてクレームを偽装しようとする攻撃。',
+    description: 'An attack that overrides the issuer URI through a malicious @context in order to forge claims.',
     result: caught ? 'mitigated' : 'vulnerable',
     details: detail,
   }
@@ -140,14 +140,14 @@ async function testSSRF(): Promise<BackendSecurityTest> {
   } catch { /* ok — we intercepted */ }
 
   return {
-    id: 'jsonld-ssrf', name: 'SSRF / 外部コンテキスト取得リスク',
+    id: 'jsonld-ssrf', name: 'SSRF / External Context Retrieval Risk',
     format: 'JSON-LD VC', category: 'SSRF',
     severity: ssrfAttempted ? 'high' : 'low',
-    description: '外部 @context URL を持つドキュメントを処理する際のSSRFリスク。カスタムローダーで緩和可能。',
+    description: 'SSRF risk when processing a document with an external @context URL. Can be mitigated with a custom loader.',
     result: ssrfAttempted ? 'partial' : 'mitigated',
     details: ssrfAttempted
-      ? `外部URL取得を試みた: ${ssrfUrl} — documentLoader でブロック済み`
-      : '外部URL取得は試みられなかった(インラインコンテキスト)',
+      ? `Attempted to fetch an external URL: ${ssrfUrl} - blocked by the documentLoader`
+      : 'No external URL fetch was attempted (inline context)',
     cveReferences: ['GHSA-4xc9-xhrj-v574'],
   }
 }
@@ -168,17 +168,17 @@ async function testAlgNone(): Promise<BackendSecurityTest> {
   let detail = ''
   try {
     await jwtVerify(noneToken, publicKey)
-    detail = '⚠ alg:none トークンが検証を通過（脆弱）'
+    detail = 'WARNING: an alg:none token passed verification (vulnerable)'
   } catch (e) {
     mitigated = true
-    detail = `jose が alg:none を正しく拒否: ${(e as Error).message.slice(0, 80)}`
+    detail = `jose correctly rejected alg:none: ${(e as Error).message.slice(0, 80)}`
   }
 
   return {
-    id: 'jwt-alg-none', name: 'JWT alg:none 攻撃',
+    id: 'jwt-alg-none', name: 'JWT alg:none Attack',
     format: 'SD-JWT VC', category: 'AlgorithmConfusion',
     severity: 'critical',
-    description: 'alg:none を指定したトークンで署名検証をスキップできるか確認。RFC 8725 §3.1 対策。',
+    description: 'Checks whether a token with alg:none can skip signature verification. Countermeasure of RFC 8725 Section 3.1.',
     result: mitigated ? 'mitigated' : 'vulnerable',
     details: detail,
     cveReferences: ['CVE-2015-9235', 'RFC 8725 §3.1'],
@@ -200,17 +200,17 @@ async function testKeyConfusion(): Promise<BackendSecurityTest> {
   let detail = ''
   try {
     await jwtVerify(token, ecPair.publicKey)
-    detail = '⚠ 異なる鍵タイプで検証が通過（脆弱）'
+    detail = 'WARNING: verification passed with a different key type (vulnerable)'
   } catch (e) {
     mitigated = true
-    detail = `jose が鍵タイプ不一致を正しく拒否: ${(e as Error).message.slice(0, 80)}`
+    detail = `jose correctly rejected the key type mismatch: ${(e as Error).message.slice(0, 80)}`
   }
 
   return {
-    id: 'jwt-key-confusion', name: '鍵タイプ混同攻撃',
+    id: 'jwt-key-confusion', name: 'Key Type Confusion Attack',
     format: 'SD-JWT VC', category: 'AlgorithmConfusion',
     severity: 'high',
-    description: 'EdDSA 署名トークンを ECDSA 鍵で検証できるか確認（アルゴリズム混同攻撃）。',
+    description: 'Checks whether a token signed with EdDSA can be verified with an ECDSA key (algorithm confusion attack).',
     result: mitigated ? 'mitigated' : 'vulnerable',
     details: detail,
     cveReferences: ['CVE-2022-21449'],
@@ -224,9 +224,9 @@ async function testMdocTampering(): Promise<BackendSecurityTest> {
     enc = cx.encode
   } catch {
     return {
-      id: 'mdoc-tampering', name: 'mdoc データ改ざん検出',
+      id: 'mdoc-tampering', name: 'mdoc Data Tampering Detection',
       format: 'mdoc', category: 'CborMalleability', severity: 'medium',
-      description: 'cbor-x が利用できないためスキップ',
+      description: 'Skipped because cbor-x is unavailable',
       result: 'not-applicable', details: 'cbor-x not available',
     }
   }
@@ -267,13 +267,13 @@ async function testMdocTampering(): Promise<BackendSecurityTest> {
   } catch { detected = true }
 
   return {
-    id: 'mdoc-tampering', name: 'mdoc データ改ざん検出',
+    id: 'mdoc-tampering', name: 'mdoc Data Tampering Detection',
     format: 'mdoc', category: 'CborMalleability', severity: 'medium',
-    description: '要素値を改ざんした mdoc に対して MSO 署名検証が失敗するか（SHA-256 ダイジェスト保護）。',
+    description: 'Whether MSO signature verification fails for an mdoc whose element value has been tampered with (SHA-256 digest protection).',
     result: detected ? 'mitigated' : 'vulnerable',
     details: detected
-      ? '改ざんされた MSO に対して署名検証が正しく失敗し、改ざんを検出'
-      : '⚠ 改ざんが検出されなかった（脆弱）',
+      ? 'Signature verification correctly failed for the tampered MSO, detecting the tampering'
+      : 'WARNING: the tampering was not detected (vulnerable)',
   }
 }
 
@@ -284,9 +284,9 @@ async function testCoseTampering(): Promise<BackendSecurityTest> {
     enc = cx.encode
   } catch {
     return {
-      id: 'cose-header-tampering', name: 'COSE 保護ヘッダー改ざん',
+      id: 'cose-header-tampering', name: 'COSE Protected Header Tampering',
       format: 'mdoc', category: 'CborMalleability', severity: 'medium',
-      description: 'cbor-x が利用できないためスキップ',
+      description: 'Skipped because cbor-x is unavailable',
       result: 'not-applicable', details: 'cbor-x not available',
     }
   }
@@ -309,13 +309,13 @@ async function testCoseTampering(): Promise<BackendSecurityTest> {
   } catch { detected = true }
 
   return {
-    id: 'cose-header-tampering', name: 'COSE 保護ヘッダー改ざん',
+    id: 'cose-header-tampering', name: 'COSE Protected Header Tampering',
     format: 'mdoc', category: 'CborMalleability', severity: 'medium',
-    description: '保護ヘッダーのアルゴリズムを変更した場合、署名検証が失敗するか確認（ヘッダーは Sig_Structure に含まれる）。',
+    description: 'Checks whether signature verification fails when the algorithm in the protected header is changed (the header is part of Sig_Structure).',
     result: detected ? 'mitigated' : 'vulnerable',
     details: detected
-      ? '保護ヘッダー改ざんにより署名が無効化され、改ざんを正しく検出'
-      : '⚠ ヘッダー改ざんが検出されなかった（脆弱）',
+      ? 'Tampering with the protected header invalidated the signature, so it was correctly detected'
+      : 'WARNING: header tampering was not detected (vulnerable)',
   }
 }
 
@@ -324,27 +324,27 @@ async function testCoseTampering(): Promise<BackendSecurityTest> {
 export async function runNodeSecurity(onProgress: ProgressCallback): Promise<BackendSecurityTest[]> {
   const results: BackendSecurityTest[] = []
 
-  onProgress('ポイズングラフ DoS テスト実行中...')
+  onProgress('Running the poison graph DoS test...')
   try { results.push(await testPoisonGraph()) } catch (e) { console.error('[security] poisonGraph:', e) }
 
-  onProgress('コンテキストインジェクション テスト実行中...')
+  onProgress('Running the context injection test...')
   try { results.push(await testContextInjection()) } catch (e) { console.error('[security] contextInjection:', e) }
 
-  onProgress('SSRF テスト実行中...')
+  onProgress('Running the SSRF test...')
   try { results.push(await testSSRF()) } catch (e) { console.error('[security] ssrf:', e) }
 
-  onProgress('JWT alg:none 攻撃テスト実行中...')
+  onProgress('Running the JWT alg:none attack test...')
   try { results.push(await testAlgNone()) } catch (e) { console.error('[security] algNone:', e) }
 
-  onProgress('鍵タイプ混同テスト実行中...')
+  onProgress('Running the key type confusion test...')
   try { results.push(await testKeyConfusion()) } catch (e) { console.error('[security] keyConfusion:', e) }
 
-  onProgress('mdoc 改ざん検出テスト実行中...')
+  onProgress('Running the mdoc tampering detection test...')
   try { results.push(await testMdocTampering()) } catch (e) { console.error('[security] mdocTampering:', e) }
 
-  onProgress('COSE ヘッダー改ざんテスト実行中...')
+  onProgress('Running the COSE header tampering test...')
   try { results.push(await testCoseTampering()) } catch (e) { console.error('[security] coseTampering:', e) }
 
-  onProgress(`セキュリティテスト完了 — ${results.length} 項目`)
+  onProgress(`Security tests completed - ${results.length} items`)
   return results
 }

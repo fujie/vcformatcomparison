@@ -142,7 +142,7 @@ results["JSON-LD VC-withLib-sign"] = bench(jl_sign, max(N//5, 10))
 
 print(json.dumps(results))`
 
-// ── TypeScript 署名速度ベンチマーク (src/benchmarks/signatureSpeed.ts) ─────────
+// ── TypeScript signing speed benchmark (src/benchmarks/signatureSpeed.ts) ─────
 export const TS_SPEED_SOURCE = `// Runtime: Browser (Web Crypto API) via Vite + React
 // Library:  jose@6.x (@panva) / @noble/ed25519@2.x / jsonld@8.x / cbor-x@1.x
 
@@ -198,15 +198,15 @@ for (let i = 0; i < N; i++) {
   await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, sigStruct)
 }`
 
-// ── TypeScript ライブラリなし実装 (src/benchmarks/noLibrary.ts) ───────────────
-export const TS_NOLIB_SOURCE = `// ライブラリなし実装: Web Crypto API のみ使用（外部パッケージ不要）
+// ── TypeScript without-library implementation (src/benchmarks/noLibrary.ts) ───
+export const TS_NOLIB_SOURCE = `// Without-library implementation: Web Crypto API only (no external packages)
 
 // ── SD-JWT VC no-lib ──────────────────────────────────────────────────
-// 鍵生成
+// Key generation
 const keyPair = await crypto.subtle.generateKey(
   { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify'])
 
-// 署名
+// Signing
 const h = b64url(JSON.stringify({ alg: 'ES256' }))
 const p = b64url(JSON.stringify(payload))
 const sig = new Uint8Array(await crypto.subtle.sign(
@@ -215,35 +215,35 @@ const sig = new Uint8Array(await crypto.subtle.sign(
   new TextEncoder().encode(\`\${h}.\${p}\`)))
 const token = \`\${h}.\${p}.\${b64url(sig)}\`
 
-// 検証
+// Verification
 const ok = await crypto.subtle.verify(
   { name: 'ECDSA', hash: 'SHA-256' }, keyPair.publicKey, sig,
   new TextEncoder().encode(\`\${h}.\${p}\`))
 
-// ── mdoc no-lib: 手書き CBOR + COSE_Sign1 ────────────────────────────
-// CBOR エンコーダ (RFC 7049, 外部ライブラリなし)
-function cborEncode(v: unknown): Uint8Array { /* ... 80行の手実装 ... */ }
+// ── mdoc no-lib: hand-written CBOR + COSE_Sign1 ──────────────────────
+// CBOR encoder (RFC 7049, no external library)
+function cborEncode(v: unknown): Uint8Array { /* ... ~80 hand-written lines ... */ }
 
-// per-element SHA-256 ダイジェスト
+// per-element SHA-256 digest
 for (const [k, val] of Object.entries(fields)) {
   const item = cborEncode(new Map([['digestID',id],['elementIdentifier',k],['elementValue',val]]))
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', item))
   valueDigestMap.set(id, digest)
 }
 
-// COSE Sig_Structure 構築
+// COSE Sig_Structure construction
 const protHdr   = cborEncode(new Map([[1, -7]]))  // {alg: ES256}
 const msoPayload = cborEncode(mso)
 const sigStruct = cborEncode(['Signature1', protHdr, new Uint8Array(0), msoPayload])
 
-// ECDSA P-256 署名
+// ECDSA P-256 signing
 const signature = new Uint8Array(await crypto.subtle.sign(
   { name: 'ECDSA', hash: 'SHA-256' }, privateKey, sigStruct))`
 
-// ── TypeScript セキュリティテスト (src/benchmarks/normalizationSecurity.ts) ────
-export const TS_SECURITY_SOURCE = `// セキュリティテスト実行コード
+// ── TypeScript security tests (src/benchmarks/normalizationSecurity.ts) ───────
+export const TS_SECURITY_SOURCE = `// Security test implementation
 
-// 1. ポイズングラフ DoS: URDNA2015 を指数時間に追い込む循環ブランクノード
+// 1. Poison graph DoS: cyclic blank nodes that drive URDNA2015 into exponential time
 const poisonDoc = {
   '@graph': Array.from({length: 20}, (_, i) => ({
     '@type': 'http://example.org/Node',
@@ -252,25 +252,25 @@ const poisonDoc = {
 }
 const t0 = performance.now()
 await jsonld.normalize(poisonDoc, { algorithm: 'URDNA2015', ... })
-const poisonMs = performance.now() - t0  // >> 通常グラフの時間
+const poisonMs = performance.now() - t0  // >> the time of a normal graph
 
-// 2. コンテキストインジェクション: @protected 項目の上書き試行
+// 2. Context injection: attempt to override an @protected term
 const maliciousDoc = {
   '@context': [VC_CONTEXT_URL, {
-    issuer: 'http://attacker.example.com/vocab#maliciousIssuer'  // 上書き試行
+    issuer: 'http://attacker.example.com/vocab#maliciousIssuer'  // override attempt
   }],
   type: 'VerifiableCredential', issuer: 'https://legitimate-issuer.example.com'
 }
 try { await jsonld.normalize(maliciousDoc, opts) }
-catch (e) { /* @protected により拒否 */ }
+catch (e) { /* rejected thanks to @protected */ }
 
-// 3. JWT alg:none 攻撃
+// 3. JWT alg:none attack
 const [h64, p64] = token.split('.')
 const noneHeader = btoa(JSON.stringify({ alg: 'none' }))...
 try { await jwtVerify(\`\${noneHeader}.\${p64}.\`, publicKey) }
-catch { /* jose が正しく拒否 */ }
+catch { /* correctly rejected by jose */ }
 
-// 4. mdoc ダイジェスト改ざん検出
+// 4. mdoc digest tampering detection
 const tamperedItem = encode({ ...originalItem, elementValue: 'ATTACKER' })
 items[0] = tamperedItem
 const valid = await verifyMdoc(tamperedMdoc, publicKey)  // → false`

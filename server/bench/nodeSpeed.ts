@@ -661,70 +661,70 @@ export async function runNodeBenchmarks(
   const errors: Record<string, string> = {}
   const N = iterations
 
-  onProgress('SD-JWT VC (ライブラリなし) 計測中...')
+  onProgress('Measuring SD-JWT VC (without library)...')
   try {
     Object.assign(results, benchSdJwtNoLib(N))
   } catch (e) {
     errors['SD-JWT VC-noLib'] = String(e)
   }
 
-  onProgress('SD-JWT VC (ライブラリあり / Ed25519) 計測中...')
+  onProgress('Measuring SD-JWT VC (with library / Ed25519)...')
   try {
     Object.assign(results, benchSdJwtWithLib(N))
   } catch (e) {
     errors['SD-JWT VC-withLib'] = String(e)
   }
 
-  onProgress('JSON-LD VC (ライブラリなし) 計測中...')
+  onProgress('Measuring JSON-LD VC (without library)...')
   try {
     Object.assign(results, benchJsonLdNoLib(N))
   } catch (e) {
     errors['JSON-LD VC-noLib'] = String(e)
   }
 
-  onProgress('JSON-LD VC (jsonld URDNA2015) 計測中...')
+  onProgress('Measuring JSON-LD VC (jsonld URDNA2015)...')
   try {
     Object.assign(results, await benchJsonLdWithLib(Math.max(Math.floor(N / 5), 10)))
   } catch (e) {
     errors['JSON-LD VC-withLib'] = String(e)
   }
 
-  onProgress('JSON-LD VC (JCS / ライブラリあり) 計測中...')
+  onProgress('Measuring JSON-LD VC (JCS / with library)...')
   try {
     Object.assign(results, await benchJsonLdJcsWithLib(N))
   } catch (e) {
     errors['JSON-LD VC (JCS)-withLib'] = String(e)
   }
 
-  onProgress('JSON-LD VC (JCS / ライブラリなし) 計測中...')
+  onProgress('Measuring JSON-LD VC (JCS / without library)...')
   try {
     Object.assign(results, benchJsonLdJcsNoLib(N))
   } catch (e) {
     errors['JSON-LD VC (JCS)-noLib'] = String(e)
   }
 
-  onProgress('mdoc (ライブラリなし / 手書き CBOR) 計測中...')
+  onProgress('Measuring mdoc (without library / hand-written CBOR)...')
   try {
     Object.assign(results, benchMdocNoLib(N))
   } catch (e) {
     errors['mdoc-noLib'] = String(e)
   }
 
-  onProgress('mdoc (cbor-x) 計測中...')
+  onProgress('Measuring mdoc (cbor-x)...')
   try {
     Object.assign(results, await benchMdocWithLib(N))
   } catch (e) {
     errors['mdoc-withLib'] = String(e)
   }
 
-  onProgress('シリアライズ速度計測中（暗号なし）...')
+  onProgress('Measuring serialization speed (no cryptography)...')
   try {
     Object.assign(results, await benchSerialize(N))
   } catch (e) {
     errors['serial'] = String(e)
   }
 
-  onProgress('完了')
+  onProgress('Done')
 
   return {
     results,

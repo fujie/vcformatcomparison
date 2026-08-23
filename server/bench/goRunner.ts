@@ -35,12 +35,12 @@ export async function runGoBenchmark(
   const hasBinary = fs.existsSync(BINARY_PATH)
 
   if (!hasBinary) {
-    onProgress('Go バイナリを自動ビルド中 (go build)...')
+    onProgress('Building the Go binary automatically (go build)...')
     await buildBinary()
-    onProgress('Go バイナリビルド完了')
+    onProgress('Go binary build completed')
   }
 
-  onProgress(`Go ネイティブバイナリ実行中 — ${iterations} iterations`)
+  onProgress(`Running the native Go binary — ${iterations} iterations`)
 
   return new Promise((resolve, reject) => {
     const args = [String(iterations)]
@@ -66,7 +66,7 @@ export async function runGoBenchmark(
       }
       try {
         const parsed = JSON.parse(stdout.trim()) as GoBenchResults
-        onProgress(`Go 完了 — ${Object.keys(parsed.results).length} 項目計測`)
+        onProgress(`Go done — ${Object.keys(parsed.results).length} measurements`)
         resolve(parsed)
       } catch (e) {
         reject(new Error(`Go JSON parse error: ${e}\nstdout: ${stdout}`))
@@ -74,7 +74,7 @@ export async function runGoBenchmark(
     })
 
     proc.on('error', (err) => {
-      reject(new Error(`Go バイナリ起動失敗: ${err.message}`))
+      reject(new Error(`Failed to start the Go binary: ${err.message}`))
     })
   })
 }

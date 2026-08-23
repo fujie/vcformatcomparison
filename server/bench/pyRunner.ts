@@ -30,7 +30,7 @@ export async function runPythonBenchmark(
 
   // Detect python3 or python
   const pythonCmd = await detectPython()
-  onProgress(`Python (${pythonCmd}) ベンチマーク開始 — ${iterations} iterations`)
+  onProgress(`Python (${pythonCmd}) benchmark started — ${iterations} iterations`)
 
   return new Promise((resolve, reject) => {
     const proc = spawn(pythonCmd, [scriptPath, String(iterations)], {
@@ -57,7 +57,7 @@ export async function runPythonBenchmark(
       }
       try {
         const parsed = JSON.parse(stdout.trim()) as PyBenchResults
-        onProgress(`Python 完了 — ${Object.keys(parsed.results).length} 項目計測`)
+        onProgress(`Python done — ${Object.keys(parsed.results).length} measurements`)
         resolve(parsed)
       } catch (e) {
         reject(new Error(`Python JSON parse error: ${e}\nstdout: ${stdout}`))
@@ -65,8 +65,8 @@ export async function runPythonBenchmark(
     })
 
     proc.on('error', (err) => {
-      reject(new Error(`Python プロセス起動失敗: ${err.message}\n` +
-        'python3 および cryptography パッケージがインストールされているか確認してください。\n' +
+      reject(new Error(`Failed to start the Python process: ${err.message}\n` +
+        'Check that python3 and the cryptography package are installed.\n' +
         'pip install cryptography'))
     })
   })
@@ -83,5 +83,5 @@ async function detectPython(): Promise<string> {
       return cmd
     } catch { /* try next */ }
   }
-  throw new Error('Python が見つかりません。python3 をインストールしてください。')
+  throw new Error('Python not found. Please install python3.')
 }

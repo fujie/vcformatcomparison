@@ -35,7 +35,7 @@ async function loadWasmExec(): Promise<void> {
     const s = document.createElement('script')
     s.src = '/wasm_exec.js'
     s.onload = () => { _loaded = true; resolve() }
-    s.onerror = () => reject(new Error('wasm_exec.js の読み込みに失敗しました'))
+    s.onerror = () => reject(new Error('Failed to load wasm_exec.js'))
     document.head.appendChild(s)
   })
 }
@@ -45,7 +45,7 @@ async function instantiateWasm(): Promise<void> {
   if (typeof window.goBench === 'function') return // already running
 
   const response = await fetch('/go-bench.wasm')
-  if (!response.ok) throw new Error(`go-bench.wasm の取得失敗: ${response.status}`)
+  if (!response.ok) throw new Error(`Failed to fetch go-bench.wasm: ${response.status}`)
   const wasmBytes = await response.arrayBuffer()
 
   const go = new window.Go()
@@ -57,7 +57,7 @@ async function instantiateWasm(): Promise<void> {
     let tries = 0
     const check = () => {
       if (typeof window.goBench === 'function') return resolve()
-      if (++tries > 50) return reject(new Error('goBench が登録されませんでした'))
+      if (++tries > 50) return reject(new Error('goBench was never registered'))
       setTimeout(check, 100)
     }
     check()
@@ -67,13 +67,13 @@ async function instantiateWasm(): Promise<void> {
 export async function runGoBenchmark(
   onProgress: (msg: string) => void,
 ): Promise<GoBenchResults> {
-  onProgress('wasm_exec.js をロード中...')
+  onProgress('Loading wasm_exec.js...')
   await loadWasmExec()
 
-  onProgress('go-bench.wasm (4.6 MB) をロード中...')
+  onProgress('Loading go-bench.wasm (4.6 MB)...')
   await instantiateWasm()
 
-  onProgress('Go ベンチマーク実行中（ECDSA P-256）...')
+  onProgress('Running the Go benchmark (ECDSA P-256)...')
   const raw = window.goBench!()
   const parsed = JSON.parse(raw) as {
     results: Record<string, GoBenchEntry>
@@ -84,6 +84,6 @@ export async function runGoBenchmark(
     console.warn('[Go benchmark] errors:', parsed.errors)
   }
 
-  onProgress(`完了 — ${Object.keys(parsed.results).length} 項目計測`)
+  onProgress(`Done — ${Object.keys(parsed.results).length} measurements`)
   return parsed.results
 }

@@ -21,8 +21,8 @@ const COLORS: Record<FormatName, string> = {
 const LANG_COLORS = { 'Node.js': '#60a5fa', 'Python': '#34d399', 'Go': '#f97316' }
 
 const STEP_LABELS: Record<string, string> = {
-  normalize: 'JSON-LD正規化', hash: 'SHA-256ハッシュ',
-  sign: 'Ed25519署名', verify: 'Ed25519検証',
+  normalize: 'JSON-LD canonicalization', hash: 'SHA-256 hash',
+  sign: 'Ed25519 sign', verify: 'Ed25519 verify',
 }
 
 // ── Backend speed panel ───────────────────────────────────────────────────────
@@ -72,12 +72,12 @@ function BackendSpeedPanel({ backendResult }: { backendResult: BackendJobResult 
       {/* Controls */}
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', gap: 4 }}>
-          <button style={tabBtn(lib === 'withLib')} onClick={() => setLib('withLib')}>ライブラリあり</button>
-          <button style={tabBtn(lib === 'noLib')}   onClick={() => setLib('noLib')}>ライブラリなし</button>
+          <button style={tabBtn(lib === 'withLib')} onClick={() => setLib('withLib')}>With library</button>
+          <button style={tabBtn(lib === 'noLib')}   onClick={() => setLib('noLib')}>Without library</button>
         </div>
         <div style={{ display: 'flex', gap: 4, marginLeft: 8 }}>
-          <button style={tabBtn(view === 'format')}   onClick={() => setView('format')}>フォーマット比較</button>
-          <button style={tabBtn(view === 'language')} onClick={() => setView('language')}>言語比較</button>
+          <button style={tabBtn(view === 'format')}   onClick={() => setView('format')}>By format</button>
+          <button style={tabBtn(view === 'language')} onClick={() => setView('language')}>By language</button>
         </div>
         <span style={{ fontSize: 11, color: '#64748b' }}>
           {node?.runtimeInfo} &nbsp;|&nbsp; {python?.runtimeInfo} &nbsp;|&nbsp; {go?.runtimeInfo}
@@ -115,7 +115,7 @@ function BackendSpeedPanel({ backendResult }: { backendResult: BackendJobResult 
       {/* Chart */}
       {view === 'format' && (
         <div style={panelStyle}>
-          <h3 style={sectionTitle}>スループット比較 — Node.js ({lib}) (ops/sec)</h3>
+          <h3 style={sectionTitle}>Throughput — Node.js ({lib}) (ops/sec)</h3>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={formatChartData} margin={{ top: 8, right: 24, left: 0, bottom: 50 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
@@ -134,7 +134,7 @@ function BackendSpeedPanel({ backendResult }: { backendResult: BackendJobResult 
 
       {view === 'language' && (
         <div style={panelStyle}>
-          <h3 style={sectionTitle}>言語別スループット比較 ({lib}) (ops/sec)</h3>
+          <h3 style={sectionTitle}>Throughput by language ({lib}) (ops/sec)</h3>
           <ResponsiveContainer width="100%" height={320}>
             <BarChart data={langChartData} margin={{ top: 8, right: 24, left: 0, bottom: 60 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
@@ -154,12 +154,12 @@ function BackendSpeedPanel({ backendResult }: { backendResult: BackendJobResult 
 
       {/* Summary table */}
       <div style={panelStyle}>
-        <h3 style={sectionTitle}>3言語比較サマリー ({lib}) (ops/sec) — 統計分布 (Node.js)</h3>
+        <h3 style={sectionTitle}>Cross-language summary ({lib}) (ops/sec) — distribution (Node.js)</h3>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr>
-                {['フォーマット', '操作', 'Node.js', 'Python', 'Go', 'Go/Node 倍率', 'σ Node(ms)', '95%CI Node(ms)', 'p50(ms)', 'p95(ms)', 'p99(ms)'].map(h =>
+                {['Format', 'Operation', 'Node.js', 'Python', 'Go', 'Go/Node ratio', 'σ Node(ms)', '95%CI Node(ms)', 'p50(ms)', 'p95(ms)', 'p99(ms)'].map(h =>
                   <th key={h} style={thStyle}>{h}</th>)}
               </tr>
             </thead>
@@ -229,7 +229,7 @@ export function SpeedResults({ results, benchMode = 'frontend', backendResult }:
             <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>{r.format} / {r.operation}</div>
             <div style={{ fontSize: 26, fontWeight: 700, color: COLORS[r.format] }}>{r.opsPerSec.toFixed(1)}</div>
             <div style={{ fontSize: 11, color: '#64748b' }}>ops/sec</div>
-            <div style={{ fontSize: 13, color: '#cbd5e1', marginTop: 6 }}>平均 {r.avgMs.toFixed(3)} ms / op</div>
+            <div style={{ fontSize: 13, color: '#cbd5e1', marginTop: 6 }}>Mean {r.avgMs.toFixed(3)} ms / op</div>
             {r.stdDevMs != null && (
               <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>
                 σ {r.stdDevMs.toFixed(3)} ms &nbsp;|&nbsp; 95%CI ±{r.ci95Ms?.toFixed(3)} ms
@@ -240,21 +240,21 @@ export function SpeedResults({ results, benchMode = 'frontend', backendResult }:
                 p50 {r.p50Ms.toFixed(3)} / p95 {r.p95Ms?.toFixed(3)} / p99 {r.p99Ms?.toFixed(3)} ms
               </div>
             )}
-            <div style={{ fontSize: 11, color: '#475569', marginTop: 4 }}>{r.iterations} イテレーション</div>
+            <div style={{ fontSize: 11, color: '#475569', marginTop: 4 }}>{r.iterations} iterations</div>
           </div>
         ))}
       </div>
 
       {/* Latency chart */}
       <div style={panelStyle}>
-        <h3 style={sectionTitle}>平均レイテンシ比較（ms / operation）</h3>
+        <h3 style={sectionTitle}>Mean latency (ms / operation)</h3>
         <ResponsiveContainer width="100%" height={300}>
           <BarChart data={avgData} margin={{ top: 8, right: 24, left: 0, bottom: 48 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 10 }} angle={-20} textAnchor="end" />
             <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} unit="ms" />
             <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
-              formatter={(v: number) => [`${v.toFixed(3)} ms`, '平均レイテンシ']} />
+              formatter={(v: number) => [`${v.toFixed(3)} ms`, 'Mean latency']} />
             <Bar dataKey="avgMs" radius={[4, 4, 0, 0]}>
               {avgData.map((e, i) => <Cell key={i} fill={COLORS[e.format as FormatName]} />)}
             </Bar>
@@ -264,14 +264,14 @@ export function SpeedResults({ results, benchMode = 'frontend', backendResult }:
 
       {/* Throughput chart */}
       <div style={panelStyle}>
-        <h3 style={sectionTitle}>スループット比較（ops/sec）</h3>
+        <h3 style={sectionTitle}>Throughput (ops/sec)</h3>
         <ResponsiveContainer width="100%" height={300}>
           <BarChart data={avgData} margin={{ top: 8, right: 24, left: 0, bottom: 48 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 10 }} angle={-20} textAnchor="end" />
             <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} />
             <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
-              formatter={(v: number) => [`${v.toFixed(1)} ops/sec`, 'スループット']} />
+              formatter={(v: number) => [`${v.toFixed(1)} ops/sec`, 'Throughput']} />
             <Bar dataKey="opsPerSec" radius={[4, 4, 0, 0]}>
               {avgData.map((e, i) => <Cell key={i} fill={COLORS[e.format as FormatName]} />)}
             </Bar>
@@ -282,7 +282,7 @@ export function SpeedResults({ results, benchMode = 'frontend', backendResult }:
       {/* JSON-LD breakdown */}
       {breakdownJsonLd && (
         <div style={panelStyle}>
-          <h3 style={sectionTitle}>JSON-LD VC 署名ステップ内訳（ms / operation）</h3>
+          <h3 style={sectionTitle}>JSON-LD VC signing step breakdown (ms / operation)</h3>
           <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 12 }}>
             {Object.entries(breakdownJsonLd).map(([step, ms]) => {
               const total = Object.values(breakdownJsonLd).reduce((a, b) => a + b, 0)
@@ -304,11 +304,11 @@ export function SpeedResults({ results, benchMode = 'frontend', backendResult }:
 
       {/* Raw table */}
       <div style={panelStyle}>
-        <h3 style={sectionTitle}>生データ（統計分布）</h3>
+        <h3 style={sectionTitle}>Raw data (distribution)</h3>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
-              <tr>{['フォーマット', '操作', '反復数', '平均(ms)', 'ops/sec', 'σ(ms)', '95%CI(ms)', 'p50(ms)', 'p90(ms)', 'p95(ms)', 'p99(ms)', 'min(ms)', 'max(ms)'].map(h =>
+              <tr>{['Format', 'Operation', 'Iterations', 'Mean(ms)', 'ops/sec', 'σ(ms)', '95%CI(ms)', 'p50(ms)', 'p90(ms)', 'p95(ms)', 'p99(ms)', 'min(ms)', 'max(ms)'].map(h =>
                 <th key={h} style={thStyle}>{h}</th>)}</tr>
             </thead>
             <tbody>

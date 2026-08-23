@@ -26,11 +26,11 @@ function MetricBar({ value, max, color }: { value: number; max: number; color: s
 }
 
 const METRICS = [
-  { key: 'linesOfCode',          label: 'コード行数 (LOC)',         unit: '行' },
-  { key: 'asyncSteps',           label: '非同期ステップ数',          unit: 'ステップ' },
-  { key: 'cyclomaticComplexity', label: '循環的複雑度',              unit: '' },
-  { key: 'externalNetworkCalls', label: '外部ネットワーク呼び出し',   unit: '回' },
-  { key: 'parseTimeMs',          label: 'パース時間 (50回平均)',      unit: 'ms' },
+  { key: 'linesOfCode',          label: 'Lines of code (LOC)',      unit: 'lines' },
+  { key: 'asyncSteps',           label: 'Async steps',              unit: 'steps' },
+  { key: 'cyclomaticComplexity', label: 'Cyclomatic complexity',    unit: '' },
+  { key: 'externalNetworkCalls', label: 'External network calls',   unit: 'calls' },
+  { key: 'parseTimeMs',          label: 'Parse time (avg of 50)',   unit: 'ms' },
 ] as const
 
 /** Render backend complexity results as a simple table */
@@ -40,12 +40,12 @@ function BackendComplexityPanel({ entries }: { entries: BackendComplexityEntry[]
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <div style={panelStyle}>
-        <h3 style={sectionTitle}>デシリアライズ複雑性メトリクス比較（バックエンド実測）</h3>
+        <h3 style={sectionTitle}>Deserialization complexity metrics (backend measurements)</h3>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr>
-                {['フォーマット', 'ライブラリ', 'LOC', '非同期ステップ', '循環的複雑度', '外部ネットワーク', 'パース時間 (avg)', '外部依存'].map(h =>
+                {['Format', 'Library', 'LOC', 'Async steps', 'Cyclomatic complexity', 'External network', 'Parse time (avg)', 'External deps'].map(h =>
                   <th key={h} style={{ textAlign: 'left', padding: '7px 10px', color: '#64748b', fontWeight: 600, borderBottom: '1px solid #334155', fontSize: 11, whiteSpace: 'nowrap' }}>{h}</th>)}
               </tr>
             </thead>
@@ -71,14 +71,14 @@ function BackendComplexityPanel({ entries }: { entries: BackendComplexityEntry[]
 
       {/* Parse time comparison bar */}
       <div style={panelStyle}>
-        <h3 style={sectionTitle}>パース時間比較（Node.js process.hrtime.bigint() 実測）</h3>
+        <h3 style={sectionTitle}>Parse time comparison (Node.js process.hrtime.bigint())</h3>
         {(['withLib', 'noLib'] as const).map(libKey => {
           const libEntries = entries.filter(e => e.lib === libKey)
           if (libEntries.length === 0) return null
           const maxMs = Math.max(...libEntries.map(e => e.parseTimeMs), 0.001)
           return (
             <div key={libKey} style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>{libKey === 'withLib' ? 'ライブラリあり' : 'ライブラリなし'}</div>
+              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>{libKey === 'withLib' ? 'With library' : 'Without library'}</div>
               {libEntries.map(e => {
                 const pct = (e.parseTimeMs / maxMs) * 100
                 return (
@@ -108,7 +108,7 @@ export function ComplexityResults({ results, benchMode = 'frontend', backendResu
     if (isBackendComplexityArray(raw)) {
       return <BackendComplexityPanel entries={raw} />
     }
-    return <div style={{ color: '#94a3b8', padding: 32 }}>バックエンド複雑性データなし — バックエンド計測を実行してください</div>
+    return <div style={{ color: '#94a3b8', padding: 32 }}>No backend complexity data - run the backend measurement first</div>
   }
 
   // Frontend mode guard
@@ -122,7 +122,7 @@ export function ComplexityResults({ results, benchMode = 'frontend', backendResu
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* Metric radar grid */}
       <div style={panelStyle}>
-        <h3 style={sectionTitle}>デシリアライズ複雑性メトリクス比較</h3>
+        <h3 style={sectionTitle}>Deserialization complexity metrics</h3>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }}>
           {METRICS.map(({ key, label, unit }) => (
             <div key={key}>
@@ -154,12 +154,12 @@ export function ComplexityResults({ results, benchMode = 'frontend', backendResu
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 18 }}>
               {[
-                { label: 'コード行数', value: `${r.linesOfCode} 行` },
-                { label: '非同期ステップ', value: `${r.asyncSteps} ステップ` },
-                { label: '循環的複雑度', value: r.cyclomaticComplexity },
-                { label: 'ネットワーク呼び出し', value: `${r.externalNetworkCalls} 回` },
-                { label: 'パース時間(平均)', value: `${r.parseTimeMs.toFixed(2)} ms` },
-                { label: '外部依存', value: `${r.externalDependencies.length} 個` },
+                { label: 'Lines of code', value: `${r.linesOfCode} lines` },
+                { label: 'Async steps', value: `${r.asyncSteps} steps` },
+                { label: 'Cyclomatic complexity', value: r.cyclomaticComplexity },
+                { label: 'Network calls', value: `${r.externalNetworkCalls} calls` },
+                { label: 'Parse time (avg)', value: `${r.parseTimeMs.toFixed(2)} ms` },
+                { label: 'External deps', value: `${r.externalDependencies.length}` },
               ].map(({ label, value }) => (
                 <div key={label} style={{ background: '#0f172a', borderRadius: 8, padding: '8px 12px' }}>
                   <div style={{ fontSize: 10, color: '#64748b' }}>{label}</div>
@@ -169,7 +169,7 @@ export function ComplexityResults({ results, benchMode = 'frontend', backendResu
             </div>
 
             <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>デシリアライズステップ</div>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>Deserialization steps</div>
               {r.steps.map((s, i) => (
                 <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 7, alignItems: 'flex-start' }}>
                   <div style={{ minWidth: 18, height: 18, borderRadius: '50%', background: COLORS[r.format] + '30', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: COLORS[r.format], fontWeight: 700 }}>{i + 1}</div>
@@ -183,7 +183,7 @@ export function ComplexityResults({ results, benchMode = 'frontend', backendResu
             </div>
 
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>外部依存</div>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>External dependencies</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                 {r.externalDependencies.map((d) => <span key={d} style={tagStyle}>{d}</span>)}
               </div>
@@ -192,7 +192,7 @@ export function ComplexityResults({ results, benchMode = 'frontend', backendResu
             {r.externalNetworkCalls > 0 && (
               <div style={{ padding: '8px 10px', background: '#7c2d12', borderRadius: 8, border: '1px solid #dc2626' }}>
                 <div style={{ fontSize: 10, color: '#fca5a5' }}>
-                  ⚠ {r.externalNetworkCalls} 回の外部URL取得:
+                  ⚠ {r.externalNetworkCalls} external URL fetches:
                   {r.networkCallDescription.map((d, i) => <div key={i} style={{ marginTop: 3 }}>• {d}</div>)}
                 </div>
               </div>
@@ -205,7 +205,7 @@ export function ComplexityResults({ results, benchMode = 'frontend', backendResu
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
         {results.map((r) => (
           <div key={r.format} style={panelStyle}>
-            <h3 style={{ ...sectionTitle, color: COLORS[r.format] }}>{r.format} — 実装コード ({r.linesOfCode}行)</h3>
+            <h3 style={{ ...sectionTitle, color: COLORS[r.format] }}>{r.format} — implementation ({r.linesOfCode} lines)</h3>
             <pre style={codeStyle}>{r.codeSnippet}</pre>
           </div>
         ))}

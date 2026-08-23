@@ -20,12 +20,12 @@ type Tab = 'speed' | 'complexity' | 'security' | 'impl' | 'scaling' | 'report'
 type Status = 'idle' | 'running' | 'done' | 'error'
 
 const TABS: { id: Tab; label: string; icon: string; desc: string }[] = [
-  { id: 'speed',      icon: '⚡', label: '署名検証速度',       desc: 'sign/verify のops/sec & レイテンシ' },
-  { id: 'complexity', icon: '📐', label: 'デシリアライズ複雑性', desc: 'LOC・非同期ステップ・循環的複雑度' },
-  { id: 'security',   icon: '🔐', label: '正規化セキュリティ',   desc: 'DoS・SSRF・インジェクション定量評価' },
-  { id: 'impl',       icon: '🔤', label: '実装比較',             desc: 'Go・Python・TS / ライブラリなし実装' },
-  { id: 'scaling',    icon: '📊', label: '詳細分析',             desc: '属性数スケーリング・選択的開示・Ed25519統一' },
-  { id: 'report',     icon: '📋', label: '結果レポート',         desc: '一覧表示・JSON/CSV/Markdown エクスポート' },
+  { id: 'speed',      icon: '⚡', label: 'Signing & Verification',      desc: 'ops/sec and latency for sign/verify' },
+  { id: 'complexity', icon: '📐', label: 'Deserialization Complexity',  desc: 'LOC, async steps, cyclomatic complexity' },
+  { id: 'security',   icon: '🔐', label: 'Canonicalization Security',   desc: 'Quantitative DoS / SSRF / injection tests' },
+  { id: 'impl',       icon: '🔤', label: 'Implementation Comparison',   desc: 'Go / Python / TS and without-library implementations' },
+  { id: 'scaling',    icon: '📊', label: 'Detailed Analysis',           desc: 'Attribute scaling, selective disclosure, Ed25519-unified' },
+  { id: 'report',     icon: '📋', label: 'Results Report',              desc: 'Overview and JSON/CSV/Markdown export' },
 ]
 
 export default function App() {
@@ -114,7 +114,7 @@ export default function App() {
         es.close()
       })
       es.onerror = () => {
-        addProgress('SSE接続エラー — ポーリングにフォールバック')
+        addProgress('SSE connection error - falling back to polling')
         es.close()
         setTimeout(async () => {
           try {
@@ -126,7 +126,7 @@ export default function App() {
         }, 1000)
       }
     } catch (e) {
-      addProgress(`エラー: ${e}`)
+      addProgress(`Error: ${e}`)
       setBackendRunning(false)
     }
   }, [backendRunning, iterations])
@@ -135,45 +135,45 @@ export default function App() {
   const runFrontendBenchmarks = useCallback(async () => {
     setStatus('running')
     setError('')
-    setProgress('ベンチマークを開始しています...')
+    setProgress('Starting the benchmark...')
 
     try {
       const { runSpeedBenchmarks } = await import('./benchmarks/signatureSpeed')
       const { runComplexityAnalysis } = await import('./benchmarks/deserializationComplexity')
       const { runSecurityTests } = await import('./benchmarks/normalizationSecurity')
 
-      setProgress('[1/5] 署名検証速度ベンチマーク実行中...')
+      setProgress('[1/5] Running the signing/verification benchmark...')
       const speed = await runSpeedBenchmarks(iterations, setProgress)
       setSpeedResults(speed)
 
-      setProgress('[2/5] デシリアライズ複雑性分析中...')
+      setProgress('[2/5] Analyzing deserialization complexity...')
       const complexity = await runComplexityAnalysis(setProgress)
       setComplexityResults(complexity)
 
-      setProgress('[3/5] セキュリティテスト実行中...')
+      setProgress('[3/5] Running the security tests...')
       const security = await runSecurityTests(setProgress)
       setSecurityResults(security)
 
-      setProgress('[4/5] Go WASM 実測中...')
+      setProgress('[4/5] Measuring Go WASM...')
       try {
         const { runGoBenchmark } = await import('./lib/goRunner')
         const goRes = await runGoBenchmark((msg) => setProgress(`[4/5] Go: ${msg}`))
         setGoResults(goRes)
       } catch (e) {
-        setProgress(`Go WASM スキップ: ${(e as Error).message}`)
+        setProgress(`Go WASM skipped: ${(e as Error).message}`)
       }
 
-      setProgress('[5/5] Python (Pyodide) 実測中...')
+      setProgress('[5/5] Measuring Python (Pyodide)...')
       try {
         const { runPythonBenchmark } = await import('./lib/pyodideRunner')
         const pyRes = await runPythonBenchmark((msg) => setProgress(`[5/5] Python: ${msg}`))
         setPythonResults(pyRes)
       } catch (e) {
-        setProgress(`Python スキップ: ${(e as Error).message}`)
+        setProgress(`Python skipped: ${(e as Error).message}`)
       }
 
       setStatus('done')
-      setProgress('すべてのテスト完了')
+      setProgress('All tests completed')
     } catch (e) {
       setStatus('error')
       setError((e as Error).message)
@@ -204,14 +204,14 @@ export default function App() {
 
   const runPythonBench = useCallback(async () => {
     setPythonRunning(true)
-    setPythonProgress('準備中...')
+    setPythonProgress('Preparing...')
     try {
       const { runPythonBenchmark } = await import('./lib/pyodideRunner')
       const results = await runPythonBenchmark((msg) => setPythonProgress(msg))
       setPythonResults(results)
-      setPythonProgress(`完了 — ${Object.keys(results).length} 項目計測`)
+      setPythonProgress(`Done - ${Object.keys(results).length} measurements`)
     } catch (e) {
-      setPythonProgress(`エラー: ${(e as Error).message}`)
+      setPythonProgress(`Error: ${(e as Error).message}`)
     } finally {
       setPythonRunning(false)
     }
@@ -219,14 +219,14 @@ export default function App() {
 
   const runGoBench = useCallback(async () => {
     setGoRunning(true)
-    setGoProgress('準備中...')
+    setGoProgress('Preparing...')
     try {
       const { runGoBenchmark } = await import('./lib/goRunner')
       const results = await runGoBenchmark((msg) => setGoProgress(msg))
       setGoResults(results)
-      setGoProgress(`完了 — ${Object.keys(results).length} 項目計測`)
+      setGoProgress(`Done - ${Object.keys(results).length} measurements`)
     } catch (e) {
-      setGoProgress(`エラー: ${(e as Error).message}`)
+      setGoProgress(`Error: ${(e as Error).message}`)
     } finally {
       setGoRunning(false)
     }
@@ -234,14 +234,14 @@ export default function App() {
 
   const runScaling = useCallback(async () => {
     setScalingRunning(true)
-    setScalingProgress('準備中...')
+    setScalingProgress('Preparing...')
     try {
       const { runScalingBenchmarks } = await import('./benchmarks/scalingBenchmarks')
       const results = await runScalingBenchmarks(50, setScalingProgress)
       setScalingResults(results)
-      setScalingProgress('完了')
+      setScalingProgress('Done')
     } catch (e) {
-      setScalingProgress(`エラー: ${(e as Error).message}`)
+      setScalingProgress(`Error: ${(e as Error).message}`)
     } finally {
       setScalingRunning(false)
     }
@@ -249,34 +249,34 @@ export default function App() {
 
   const runNoLib = useCallback(async () => {
     setNoLibRunning(true)
-    setNoLibProgress('準備中...')
+    setNoLibProgress('Preparing...')
     try {
       const { runNoLibBenchmarks, runSerialBenchmarks } = await import('./benchmarks/noLibrary')
-      setNoLibProgress('[1/4] TypeScript 署名速度ベンチマーク中...')
+      setNoLibProgress('[1/4] TypeScript signing speed benchmark...')
       const results = await runNoLibBenchmarks(iterations, setNoLibProgress)
       setNoLibResults(results)
-      setNoLibProgress('[2/4] シリアライズ速度ベンチマーク中...')
+      setNoLibProgress('[2/4] Serialization speed benchmark...')
       const serial = await runSerialBenchmarks(200)
       setSerialResults(serial)
-      setNoLibProgress('[3/4] Go WASM 実測中...')
+      setNoLibProgress('[3/4] Measuring Go WASM...')
       try {
         const { runGoBenchmark } = await import('./lib/goRunner')
         const goRes = await runGoBenchmark((msg) => setNoLibProgress(`[3/4] Go: ${msg}`))
         setGoResults(goRes)
       } catch (e) {
-        setNoLibProgress(`Go WASM エラー: ${(e as Error).message}`)
+        setNoLibProgress(`Go WASM error: ${(e as Error).message}`)
       }
-      setNoLibProgress('[4/4] Python (Pyodide) 実測中...')
+      setNoLibProgress('[4/4] Measuring Python (Pyodide)...')
       try {
         const { runPythonBenchmark } = await import('./lib/pyodideRunner')
         const pyRes = await runPythonBenchmark((msg) => setNoLibProgress(`[4/4] Python: ${msg}`))
         setPythonResults(pyRes)
       } catch (e) {
-        setNoLibProgress(`Python エラー: ${(e as Error).message}`)
+        setNoLibProgress(`Python error: ${(e as Error).message}`)
       }
-      setNoLibProgress('完了')
+      setNoLibProgress('Done')
     } catch (e) {
-      setNoLibProgress(`エラー: ${(e as Error).message}`)
+      setNoLibProgress(`Error: ${(e as Error).message}`)
     } finally {
       setNoLibRunning(false)
     }
@@ -290,7 +290,7 @@ export default function App() {
           <div>
             <h1 style={h1Style}>VC Format Comparison Tool</h1>
             <p style={subtitleStyle}>
-              SD-JWT VC / JSON-LD VC (W3C VCDM 2.0) / mdoc (ISO 18013-5) — 定量的比較分析
+              SD-JWT VC / JSON-LD VC (W3C VCDM 2.0) / mdoc (ISO 18013-5) — quantitative comparison
             </p>
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -300,26 +300,26 @@ export default function App() {
                 onClick={() => handleModeChange('frontend')}
                 style={{ ...toggleBtn, ...(benchMode === 'frontend' ? toggleBtnActiveFront : {}) }}
               >
-                🌐 ブラウザ
+                🌐 Browser
               </button>
               <button
                 onClick={() => handleModeChange('backend')}
                 style={{ ...toggleBtn, ...(benchMode === 'backend' ? toggleBtnActiveBack : {}) }}
               >
-                🖥 バックエンド
+                🖥 Backend
               </button>
             </div>
 
             {/* Backend health indicator */}
             {benchMode === 'backend' && (
               <span style={{ fontSize: 11, color: backendHealth === false ? '#ef4444' : backendHealth === true ? '#34d399' : '#64748b' }}>
-                {backendHealth === false ? '⚠ サーバー未起動' : backendHealth === true ? '✓ 接続済み' : '確認中...'}
+                {backendHealth === false ? '⚠ Server not running' : backendHealth === true ? '✓ Connected' : 'Checking...'}
               </span>
             )}
 
             {benchMode === 'frontend' && (
               <label style={{ fontSize: 12, color: '#64748b' }}>
-                イテレーション数
+                Iterations
                 <select value={iterations} onChange={(e) => setIterations(Number(e.target.value))}
                   style={selectStyle} disabled={isBusy}>
                   {[20, 50, 100, 200].map((n) => <option key={n} value={n}>{n}</option>)}
@@ -328,7 +328,7 @@ export default function App() {
             )}
             {benchMode === 'backend' && (
               <label style={{ fontSize: 12, color: '#64748b' }}>
-                イテレーション数
+                Iterations
                 <select value={iterations} onChange={(e) => setIterations(Number(e.target.value))}
                   style={selectStyle} disabled={isBusy}>
                   {[50, 100, 200, 500].map((n) => <option key={n} value={n}>{n}</option>)}
@@ -342,10 +342,10 @@ export default function App() {
               style={{ ...btnStyle, ...(isBusy ? btnDisabledStyle : benchMode === 'backend' ? btnBackStyle : btnActiveStyle) }}
             >
               {isBusy
-                ? (benchMode === 'backend' ? '⏳ バックエンド計測中...' : '実行中...')
+                ? (benchMode === 'backend' ? '⏳ Measuring on the backend...' : 'Running...')
                 : hasDone
-                  ? '再実行'
-                  : benchMode === 'backend' ? '🖥 バックエンド計測実行' : 'ベンチマーク実行'}
+                  ? 'Run again'
+                  : benchMode === 'backend' ? '🖥 Run backend measurement' : 'Run benchmark'}
             </button>
           </div>
         </div>
@@ -359,7 +359,7 @@ export default function App() {
         )}
         {benchMode === 'frontend' && status === 'error' && (
           <div style={{ padding: '8px 16px', background: '#7f1d1d', color: '#fca5a5', fontSize: 13, borderTop: '1px solid #dc2626' }}>
-            エラー: {error}
+            Error: {error}
           </div>
         )}
         {benchMode === 'frontend' && status === 'done' && (
@@ -373,18 +373,18 @@ export default function App() {
           <div style={progressBarWrap}>
             <div style={progressBar} />
             <span style={{ fontSize: 12, color: '#f97316', marginLeft: 12 }}>
-              {backendProgress[backendProgress.length - 1] ?? '準備中...'}
+              {backendProgress[backendProgress.length - 1] ?? 'Preparing...'}
             </span>
           </div>
         )}
         {benchMode === 'backend' && backendResult?.status === 'done' && (
           <div style={{ padding: '6px 16px', background: '#172554', color: '#93c5fd', fontSize: 12, borderTop: '1px solid #3b82f6' }}>
-            ✓ バックエンド計測完了 ({((backendResult.durationMs ?? 0) / 1000).toFixed(1)}s) — Node.js / Python / Go
+            ✓ Backend measurement completed ({((backendResult.durationMs ?? 0) / 1000).toFixed(1)}s) — Node.js / Python / Go
           </div>
         )}
         {benchMode === 'backend' && backendHealth === false && !backendRunning && (
           <div style={{ padding: '7px 16px', background: '#451a03', color: '#fed7aa', fontSize: 12, borderTop: '1px solid #f97316' }}>
-            ⚠ バックエンドサーバー未起動 — ターミナルで <code style={{ background: '#0f172a', padding: '1px 6px', borderRadius: 4 }}>npm run server</code> を実行してください
+            ⚠ Backend server not running — run <code style={{ background: '#0f172a', padding: '1px 6px', borderRadius: 4 }}>npm run server</code> in a terminal
           </div>
         )}
       </div>
@@ -409,14 +409,14 @@ export default function App() {
             color: benchMode === 'backend' ? '#f97316' : '#60a5fa',
             border: `1px solid ${benchMode === 'backend' ? '#f97316' : '#3b82f6'}44`,
           }}>
-            {benchMode === 'backend' ? '🖥 バックエンド' : '🌐 ブラウザ'}
+            {benchMode === 'backend' ? '🖥 Backend' : '🌐 Browser'}
           </span>
         </div>
       </div>
 
       {/* Content */}
       <div style={contentStyle}>
-        {/* 実装比較タブ — 常に表示 */}
+        {/* Implementation comparison tab — always visible */}
         {tab === 'impl' && (
           <ImplComparison
             benchmarkResults={noLibResults}
@@ -440,7 +440,7 @@ export default function App() {
           />
         )}
 
-        {/* 詳細分析タブ — 常に表示 */}
+        {/* Detailed analysis tab — always visible */}
         {tab === 'scaling' && (
           <ScalingResults
             results={scalingResults}
@@ -450,7 +450,7 @@ export default function App() {
           />
         )}
 
-        {/* 結果レポートタブ — 常に表示 */}
+        {/* Results report tab — always visible */}
         {tab === 'report' && (
           <ReportView
             speedResults={speedResults}
@@ -479,9 +479,9 @@ export default function App() {
             {/* Loading */}
             {isBusy && (
               <>
-                {tab === 'speed'      && <LoadingPlaceholder label="署名検証速度を計測中..." />}
-                {tab === 'complexity' && <LoadingPlaceholder label="デシリアライズ複雑性を分析中..." />}
-                {tab === 'security'   && <LoadingPlaceholder label="セキュリティテストを実行中..." />}
+                {tab === 'speed'      && <LoadingPlaceholder label="Measuring signing/verification speed..." />}
+                {tab === 'complexity' && <LoadingPlaceholder label="Analyzing deserialization complexity..." />}
+                {tab === 'security'   && <LoadingPlaceholder label="Running the security tests..." />}
               </>
             )}
 
@@ -517,7 +517,7 @@ export default function App() {
 
       {/* Footer */}
       <div style={footerStyle}>
-        <span>使用ライブラリ: </span>
+        <span>Libraries used: </span>
         {['jose@6.x', '@noble/ed25519@2.x', 'jsonld@8.x', 'recharts@2.x'].map((l) =>
           <span key={l} style={tagStyle}>{l}</span>)}
         <span style={{ marginLeft: 8 }}>|</span>
@@ -531,20 +531,20 @@ function EmptyState() {
   return (
     <div style={emptyStyle}>
       <div style={{ fontSize: 48, marginBottom: 16 }}>🔬</div>
-      <h2 style={{ color: '#e2e8f0', fontSize: 20, marginBottom: 8 }}>比較ベンチマークを実行してください</h2>
+      <h2 style={{ color: '#e2e8f0', fontSize: 20, marginBottom: 8 }}>Run the comparison benchmark</h2>
       <p style={{ color: '#64748b', fontSize: 14, maxWidth: 540, textAlign: 'center', lineHeight: 1.6 }}>
-        「ベンチマーク実行」ボタンを押すと、ブラウザ内で3フォーマットの
-        署名検証速度・デシリアライズ複雑性・正規化セキュリティを定量測定します。
+        Pressing "Run benchmark" measures, inside your browser, the signing/verification speed,
+        deserialization complexity and canonicalization security of the three formats.
       </p>
       <div style={{ display: 'flex', gap: 14, marginTop: 28, flexWrap: 'wrap', justifyContent: 'center' }}>
         {[
-          { color: '#60a5fa', label: 'SD-JWT VC',  spec: 'IETF RFC 9901',   serial: 'JWT (JSON)',      crypto: 'EdDSA / Ed25519',    norm: 'なし' },
+          { color: '#60a5fa', label: 'SD-JWT VC',  spec: 'IETF RFC 9901',   serial: 'JWT (JSON)',      crypto: 'EdDSA / Ed25519',    norm: 'None' },
           { color: '#f59e0b', label: 'JSON-LD VC', spec: 'W3C VCDM 2.0',    serial: 'JSON-LD (JSON)',  crypto: 'Ed25519 + SHA-256',   norm: 'URDNA2015 (RDF)' },
-          { color: '#34d399', label: 'mdoc',        spec: 'ISO 18013-5',     serial: 'CBOR (バイナリ)', crypto: 'ECDSA P-256 (ES256)', norm: 'なし' },
+          { color: '#34d399', label: 'mdoc',        spec: 'ISO 18013-5',     serial: 'CBOR (binary)',   crypto: 'ECDSA P-256 (ES256)', norm: 'None' },
         ].map(({ color, label, spec, serial, crypto, norm }) => (
           <div key={label} style={{ background: '#1e293b', borderRadius: 12, padding: '16px 20px', border: `1px solid ${color}40`, minWidth: 180, maxWidth: 220 }}>
             <div style={{ color, fontWeight: 700, fontSize: 15, marginBottom: 10 }}>{label}</div>
-            {[['規格', spec], ['シリアライズ', serial], ['暗号アルゴリズム', crypto], ['正規化', norm]].map(([k, v]) => (
+            {[['Specification', spec], ['Serialization', serial], ['Signature algorithm', crypto], ['Canonicalization', norm]].map(([k, v]) => (
               <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 5 }}>
                 <span style={{ fontSize: 10, color: '#475569', whiteSpace: 'nowrap' }}>{k}</span>
                 <span style={{ fontSize: 10, color: '#94a3b8', textAlign: 'right' }}>{v}</span>

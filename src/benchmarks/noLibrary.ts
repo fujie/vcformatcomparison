@@ -614,24 +614,24 @@ export async function runNoLibBenchmarks(
     minMs: r.minMs, maxMs: r.maxMs,
   })
 
-  onProgress('SD-JWT VC ライブラリあり計測中...')
+  onProgress('Measuring SD-JWT VC with library...')
   const sdWithLib = (await benchmarkSdJwt(iterations)).map(r => toNoLib(r, 'withLib'))
 
-  onProgress('SD-JWT VC ライブラリなし計測中...')
+  onProgress('Measuring SD-JWT VC without library...')
   const sdNoLib = await benchmarkSdJwtNoLib(iterations)
 
-  onProgress('JSON-LD VC ライブラリあり計測中（URDNA2015）...')
+  onProgress('Measuring JSON-LD VC with library (URDNA2015)...')
   const jlWithLib = (await benchmarkJsonLdVc(iterations)).map(r => toNoLib(r, 'withLib'))
 
-  onProgress('JSON-LD VC ライブラリなし計測中（N-Quads 静的展開）...')
+  onProgress('Measuring JSON-LD VC without library (statically expanded N-Quads)...')
   const jlNoLib = await benchmarkJsonLdVcNoLib(iterations)
 
-  onProgress('mdoc ライブラリあり計測中...')
+  onProgress('Measuring mdoc with library...')
   const mdWithLib = (await benchmarkMdoc(iterations)).map(r => toNoLib(r, 'withLib'))
 
-  onProgress('mdoc ライブラリなし計測中...')
+  onProgress('Measuring mdoc without library...')
   const mdNoLib = await benchmarkMdocNoLib(iterations)
 
-  onProgress('完了')
+  onProgress('Done')
   return [...sdWithLib, ...sdNoLib, ...jlWithLib, ...jlNoLib, ...mdWithLib, ...mdNoLib]
 }

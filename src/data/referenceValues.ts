@@ -1,5 +1,5 @@
 // Shared Go/Python reference benchmark values (ops/sec).
-// Measured on Apple M2 Pro; users can override via the ⚡ 言語別速度比較 tab.
+// Measured on Apple M2 Pro; users can override via the ⚡ Cross-Language Speed tab.
 
 export type RefValues = Record<string, { Go: number; Python: number }>
 
