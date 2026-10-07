@@ -1,6 +1,6 @@
 # VC Format Comparison Tool
 
-A browser-based benchmark tool for quantitatively comparing four Verifiable Credential formats — **SD-JWT VC**, **JSON-LD VC**, **JSON-LD VC (JCS)**, and **mdoc (ISO 18013-5)** — across multiple axes including signature verification speed, deserialization complexity, normalization security, and attribute scaling.
+A browser-based benchmark tool for quantitatively comparing four Verifiable Credential formats — **SD-JWT VC**, **W3C VCDM**, **W3C VCDM (JCS)**, and **mdoc (ISO 18013-5)** — across multiple axes including signature verification speed, deserialization complexity, normalization security, and attribute scaling.
 
 [日本語版 README はこちら](README.ja.md)
 
@@ -8,9 +8,9 @@ A browser-based benchmark tool for quantitatively comparing four Verifiable Cred
 
 | Format | Specification | Serialization | Signature Algorithm | Canonicalization |
 |---|---|---|---|---|
-| **SD-JWT VC** | IETF RFC 9901 | JWT (text) | EdDSA (Ed25519) | None |
-| **JSON-LD VC** | W3C VCDM 2.0 | JSON-LD (text) | Ed25519 + SHA-256 | URDNA2015 (RDF) |
-| **JSON-LD VC (JCS)** | W3C VCDM 2.0 | JSON-LD (text) | Ed25519 + SHA-256 | JCS RFC 8785 |
+| **SD-JWT VC** | IETF draft-ietf-oauth-sd-jwt-vc (selective disclosure: RFC 9901) | JSON claims (JWS Compact + disclosure list) | EdDSA (Ed25519) | None |
+| **W3C VCDM** | W3C VCDM 2.0 + Data Integrity (eddsa-rdfc-2022) | JSON-LD (RDF data model) | Ed25519 | RDFC-1.0 |
+| **W3C VCDM (JCS)** | W3C VCDM 2.0 + Data Integrity (eddsa-jcs-2022) | JSON-LD (RDF data model) | Ed25519 | JCS (RFC 8785) |
 | **mdoc** | ISO 18013-5 | CBOR (binary) | ECDSA P-256 (ES256) | None |
 
 ## Setup
@@ -59,8 +59,8 @@ Runs sign/verify for each format over the specified iteration count and measures
 | Format | Sign | Verify |
 |---|---|---|
 | SD-JWT VC | `jose` SignJWT (EdDSA/Ed25519) | `jose` jwtVerify |
-| JSON-LD VC | jsonld.normalize (URDNA2015) → SHA-256 → @noble/ed25519 sign | normalize → SHA-256 → ed25519 verify |
-| JSON-LD VC (JCS) | JCS RFC 8785 canonicalization → SHA-256 → @noble/ed25519 sign | JCS → SHA-256 → ed25519 verify |
+| W3C VCDM | jsonld.normalize (algorithm: URDNA2015 = RDFC-1.0) → SHA-256 → @noble/ed25519 sign | normalize → SHA-256 → ed25519 verify |
+| W3C VCDM (JCS) | JCS RFC 8785 canonicalization → SHA-256 → @noble/ed25519 sign | JCS → SHA-256 → ed25519 verify |
 | mdoc | CBOR encode → SHA-256 digest → COSE_Sign1 (ECDSA P-256) | MSO decode → digest verification → COSE signature verification |
 
 **Output statistics**
@@ -98,9 +98,9 @@ Actually executes attack vectors against each format and determines Vulnerable /
 
 | Test ID | Test Name | Target | Category |
 |---|---|---|---|
-| S1 | Poisoned graph DoS (URDNA2015) | JSON-LD VC | DoS |
-| S2 | JSON-LD context injection | JSON-LD VC | ContextHijack |
-| S3 | SSRF via remote context | JSON-LD VC | SSRF |
+| S1 | Poisoned graph DoS (RDFC-1.0) | W3C VCDM | DoS |
+| S2 | JSON-LD context injection | W3C VCDM | ContextHijack |
+| S3 | SSRF via remote context | W3C VCDM | SSRF |
 | S4 | alg:none attack | SD-JWT VC | AlgorithmConfusion |
 | S5 | Algorithm confusion RS256→EdDSA | SD-JWT VC | AlgorithmConfusion |
 | S6 | mdoc data element tampering detection | mdoc | CborMalleability |
@@ -138,7 +138,7 @@ Measures serialization speed for each format at 5 / 20 / 100 / 500 attributes, c
 
 Quantifies the performance cost and SSRF attack surface of remote context loading.
 
-#### 3. URDNA2015 Call Limit Comparison
+#### 3. RDFC-1.0 Call Limit Comparison
 
 Generates poisoned graphs with blank node cycles of 2 / 4 / 6 / 8 nodes, comparing latency and protection behavior with and without timeout.
 
@@ -152,8 +152,8 @@ Compares presentation generation latency when disclosing N attributes from a 20-
 | Format | Disclosure Mechanism |
 |---|---|
 | SD-JWT VC | SHA-256 hashed disclosures (`_sd` array) — RFC 9901 compliant |
-| JSON-LD VC | Re-normalize derived credential (disclosed attributes only) with URDNA2015 |
-| JSON-LD VC (JCS) | Re-canonicalize disclosed attribute subset document with JCS |
+| W3C VCDM | Re-normalize derived credential (disclosed attributes only) with RDFC-1.0 |
+| W3C VCDM (JCS) | Re-canonicalize disclosed attribute subset document with JCS |
 | mdoc | CBOR-encode only disclosed elements from IssuerSigned nameSpace |
 
 #### 5. Ed25519 Unified Benchmark
@@ -182,7 +182,7 @@ The "📋 Result Report" tab displays all completed benchmark results in a unifi
 6. Serialization speed
 7. Attribute count scaling
 8. JSON-LD context loader comparison
-9. URDNA2015 call limit comparison
+9. RDFC-1.0 call limit comparison
 10. Selective disclosure performance comparison
 11. Ed25519 unified benchmark
 12. Actual execution code (TypeScript / Go / Python)
@@ -241,9 +241,9 @@ The "📋 Result Report" tab displays all completed benchmark results in a unifi
 | Library | Version | Purpose |
 |---|---|---|
 | `jose` | 6.x | JWS signing and verification for SD-JWT VC (EdDSA) |
-| `@noble/ed25519` | 2.x | Ed25519 signing and verification for JSON-LD VC |
+| `@noble/ed25519` | 2.x | Ed25519 signing and verification for W3C VCDM |
 | `@noble/hashes` | 1.x | SHA-256 / SHA-512 |
-| `jsonld` | 8.x | JSON-LD URDNA2015 canonicalization |
+| `jsonld` | 8.x | JSON-LD RDFC-1.0 canonicalization |
 | `cbor-x` | 1.x | CBOR encoding and decoding for mdoc |
 | `recharts` | 2.x | Benchmark result chart rendering |
 | `react` / `react-dom` | 18.x | UI framework |
@@ -296,9 +296,9 @@ Example request body:
 
 `jsonld` v8's `normalize()` has `safe: true` enabled by default. Some benchmark paths in this tool use `safe: false`. In production implementations, keep `safe: true`. The `safe: true` flag prevents undefined terms from being silently excluded from the data being signed.
 
-### URDNA2015 Call Limit
+### RDFC-1.0 Call Limit
 
-Poisoned graphs (blank node cycles) cause URDNA2015's computational complexity to explode exponentially. Production implementations must always impose a call limit or timeout. This tool demonstrates mitigation using `Promise.race` with a 2000 ms timeout.
+Poisoned graphs (blank node cycles) cause the computational complexity of RDFC-1.0 to explode exponentially. Production implementations must always impose a call limit or timeout. This tool demonstrates mitigation using `Promise.race` with a 2000 ms timeout.
 
 ### Context Loader and SSRF
 

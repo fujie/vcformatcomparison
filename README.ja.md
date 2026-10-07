@@ -1,14 +1,14 @@
 # VC Format Comparison Tool
 
-SD-JWT VC・JSON-LD VC・JSON-LD VC (JCS)・mdoc (ISO 18013-5) の4フォーマットを、署名検証速度・デシリアライズ複雑性・正規化セキュリティ・属性スケーリングなど多軸で定量比較するブラウザ完結型のベンチマークツールです。
+SD-JWT VC・W3C VCDM・W3C VCDM (JCS)・mdoc (ISO 18013-5) の4フォーマットを、署名検証速度・デシリアライズ複雑性・正規化セキュリティ・属性スケーリングなど多軸で定量比較するブラウザ完結型のベンチマークツールです。
 
 ## 比較対象フォーマット
 
 | フォーマット | 規格 | シリアライズ | 署名アルゴリズム | 正規化 |
 |---|---|---|---|---|
-| **SD-JWT VC** | IETF RFC 9901 | JWT (テキスト) | EdDSA (Ed25519) | なし |
-| **JSON-LD VC** | W3C VCDM 2.0 | JSON-LD (テキスト) | Ed25519 + SHA-256 | URDNA2015 (RDF) |
-| **JSON-LD VC (JCS)** | W3C VCDM 2.0 | JSON-LD (テキスト) | Ed25519 + SHA-256 | JCS RFC 8785 |
+| **SD-JWT VC** | IETF draft-ietf-oauth-sd-jwt-vc（選択的開示は RFC 9901） | JSONクレーム（JWSコンパクト＋Disclosure列） | EdDSA (Ed25519) | なし |
+| **W3C VCDM** | W3C VCDM 2.0 + Data Integrity (eddsa-rdfc-2022) | JSON-LD（RDFデータモデル） | Ed25519 | RDFC-1.0 |
+| **W3C VCDM (JCS)** | W3C VCDM 2.0 + Data Integrity (eddsa-jcs-2022) | JSON-LD（RDFデータモデル） | Ed25519 | JCS (RFC 8785) |
 | **mdoc** | ISO 18013-5 | CBOR (バイナリ) | ECDSA P-256 (ES256) | なし |
 
 ## セットアップ
@@ -57,8 +57,8 @@ Node.js の `process.hrtime.bigint()` (精度 ナノ秒) でサーバーサイ�
 | フォーマット | sign | verify |
 |---|---|---|
 | SD-JWT VC | `jose` SignJWT (EdDSA/Ed25519) | `jose` jwtVerify |
-| JSON-LD VC | jsonld.normalize (URDNA2015) → SHA-256 → @noble/ed25519 sign | normalize → SHA-256 → ed25519 verify |
-| JSON-LD VC (JCS) | JCS RFC 8785 正規化 → SHA-256 → @noble/ed25519 sign | JCS → SHA-256 → ed25519 verify |
+| W3C VCDM | jsonld.normalize (algorithm: URDNA2015 = RDFC-1.0) → SHA-256 → @noble/ed25519 sign | normalize → SHA-256 → ed25519 verify |
+| W3C VCDM (JCS) | JCS RFC 8785 正規化 → SHA-256 → @noble/ed25519 sign | JCS → SHA-256 → ed25519 verify |
 | mdoc | CBOR encode → SHA-256 ダイジェスト → COSE_Sign1 (ECDSA P-256) | MSO デコード → ダイジェスト検証 → COSE 署名検証 |
 
 **出力統計**
@@ -96,9 +96,9 @@ Node.js の `process.hrtime.bigint()` (精度 ナノ秒) でサーバーサイ�
 
 | テスト ID | テスト名 | 対象 | カテゴリ |
 |---|---|---|---|
-| S1 | ポイズングラフ DoS (URDNA2015) | JSON-LD VC | DoS |
-| S2 | JSON-LD コンテキストインジェクション | JSON-LD VC | ContextHijack |
-| S3 | リモートコンテキスト経由 SSRF | JSON-LD VC | SSRF |
+| S1 | ポイズングラフ DoS (RDFC-1.0) | W3C VCDM | DoS |
+| S2 | JSON-LD コンテキストインジェクション | W3C VCDM | ContextHijack |
+| S3 | リモートコンテキスト経由 SSRF | W3C VCDM | SSRF |
 | S4 | alg:none 攻撃 | SD-JWT VC | AlgorithmConfusion |
 | S5 | アルゴリズム混同 RS256→EdDSA | SD-JWT VC | AlgorithmConfusion |
 | S6 | mdoc データ要素改ざん検出 | mdoc | CborMalleability |
@@ -136,7 +136,7 @@ Go WASM と Python (Pyodide) の計測は「ベンチマーク実行」ボタン
 
 リモートコンテキストローダー使用時の性能コストと SSRF 攻撃面を定量化します。
 
-#### 3. URDNA2015 call limit 有無比較
+#### 3. RDFC-1.0 call limit 有無比較
 
 2 / 4 / 6 / 8 ノードのブランクノード循環グラフでポイズングラフを生成し、タイムアウトの有無でレイテンシと保護動作を比較します。
 
@@ -150,8 +150,8 @@ Go WASM と Python (Pyodide) の計測は「ベンチマーク実行」ボタン
 | フォーマット | 開示メカニズム |
 |---|---|
 | SD-JWT VC | SHA-256 ハッシュ済みディスクロージャー (`_sd` 配列) — RFC 9901 準拠 |
-| JSON-LD VC | URDNA2015 で派生クレデンシャル (開示属性のみ) を再正規化 |
-| JSON-LD VC (JCS) | JCS で開示属性サブセットのドキュメントを再正規化 |
+| W3C VCDM | RDFC-1.0 で派生クレデンシャル (開示属性のみ) を再正規化 |
+| W3C VCDM (JCS) | JCS で開示属性サブセットのドキュメントを再正規化 |
 | mdoc | IssuerSigned nameSpace から開示要素のみを CBOR エンコード |
 
 #### 5. Ed25519 統一ベンチマーク
@@ -180,7 +180,7 @@ Go WASM と Python (Pyodide) の計測は「ベンチマーク実行」ボタン
 6. シリアライズ速度
 7. 属性数スケーリング
 8. JSON-LD コンテキストローダー比較
-9. URDNA2015 call limit 有無比較
+9. RDFC-1.0 call limit 有無比較
 10. 選択的開示性能比較
 11. Ed25519 統一ベンチマーク
 12. 実際の実行コード (TypeScript / Go / Python)
@@ -239,9 +239,9 @@ Go WASM と Python (Pyodide) の計測は「ベンチマーク実行」ボタン
 | ライブラリ | バージョン | 用途 |
 |---|---|---|
 | `jose` | 6.x | SD-JWT VC の JWS 署名・検証 (EdDSA) |
-| `@noble/ed25519` | 2.x | JSON-LD VC の Ed25519 署名・検証 |
+| `@noble/ed25519` | 2.x | W3C VCDM の Ed25519 署名・検証 |
 | `@noble/hashes` | 1.x | SHA-256 / SHA-512 |
-| `jsonld` | 8.x | JSON-LD URDNA2015 正規化 |
+| `jsonld` | 8.x | JSON-LD RDFC-1.0 正規化 |
 | `cbor-x` | 1.x | mdoc の CBOR エンコード・デコード |
 | `recharts` | 2.x | ベンチマーク結果のグラフ描画 |
 | `react` / `react-dom` | 18.x | UI フレームワーク |
@@ -294,9 +294,9 @@ GOOS=js GOARCH=wasm go build -o ../../public/go-bench.wasm .
 
 `jsonld` v8 の `normalize()` はデフォルトで `safe: true` が有効です。本ツールのベンチマークでは `safe: false` を使用する箇所があります。本番実装では `safe: true` のまま使用してください。`safe: true` は未定義用語が署名対象からサイレントに除外されることを防ぎます。
 
-### URDNA2015 の call limit
+### RDFC-1.0 の call limit
 
-ポイズングラフ (blank node cycle) により URDNA2015 の計算量が爆発的に増加します。本番実装では必ず call limit またはタイムアウトを設けてください。本ツールでは `Promise.race` + 2000ms タイムアウトで緩和効果を実証しています。
+ポイズングラフ (blank node cycle) により RDFC-1.0 の計算量が爆発的に増加します。本番実装では必ず call limit またはタイムアウトを設けてください。本ツールでは `Promise.race` + 2000ms タイムアウトで緩和効果を実証しています。
 
 ### コンテキストローダーと SSRF
 
