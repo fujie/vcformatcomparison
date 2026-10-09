@@ -1,3 +1,28 @@
-node_modules
-dist
+# dependencies / build output
+node_modules/
+dist/
+*.wasm.map
+
+# editor / OS / tooling
 .DS_Store
+.claude/
+.vscode/
+*.swp
+
+# office and LibreOffice lock files
+~$*
+.~lock.*#
+
+# measurement scratch (raw logs, page images, intermediate JSON)
+analysis/
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+*.bbl
+*.blg
