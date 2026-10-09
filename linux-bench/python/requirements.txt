@@ -1,3 +1,0 @@
-cryptography>=42.0
-PyLD>=2.0.4
-cbor2>=5.6
